@@ -1,0 +1,31 @@
+# Configuration pour le client
+# Copiez ce fichier vers .env et modifiez les valeurs selon vos besoins
+
+# Port du serveur
+PORT=3001
+
+# Environnement
+NODE_ENV=production
+
+# URL du frontend (laissez tel quel pour l'application desktop)
+FRONTEND_URL=http://localhost:3000
+
+# Clés de sécurité (CHANGEZ CES VALEURS !)
+JWT_SECRET=votre-cle-secrete-jwt-personnalisee
+JWT_REFRESH_SECRET=votre-cle-secrete-refresh-personnalisee
+
+# Configuration de la base de données
+# L'application utilise SQLite par défaut
+# Les données sont stockées dans database.sqlite
+
+# Configuration des uploads
+UPLOAD_PATH=./uploads
+MAX_FILE_SIZE=10485760
+
+# Niveau de log
+LOG_LEVEL=info
+
+# IMPORTANT : 
+# 1. Copiez ce fichier vers .env
+# 2. Modifiez les clés JWT_SECRET et JWT_REFRESH_SECRET
+# 3. Redémarrez l'application après modification

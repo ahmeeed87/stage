@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Simple - Suppression des Données</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 8px;
+            font-size: 14px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button.danger {
+            background: #dc3545;
+        }
+        .button.danger:hover {
+            background: #c82333;
+        }
+        .button.success {
+            background: #28a745;
+        }
+        .button.success:hover {
+            background: #218838;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .data-display {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+            border: 1px solid #dee2e6;
+        }
+        .data-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+        .data-item:last-child {
+            border-bottom: none;
+        }
+        .step {
+            background: #e9ecef;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Simple - Suppression des Données</h1>
+        <p>Cette page vous permet de tester la suppression des données d'exemple.</p>
+        
+        <div class="status" id="status"></div>
+        
+        <div class="step">
+            <strong>Étape 1 :</strong> Vérifier l'état actuel des données
+        </div>
+        
+        <h2>📊 État Actuel des Données</h2>
+        <div class="data-display" id="dataStatus">
+            <div class="data-item">
+                <span>Candidats:</span>
+                <span id="candidateCount">Chargement...</span>
+            </div>
+            <div class="data-item">
+                <span>Formations:</span>
+                <span id="formationCount">Chargement...</span>
+            </div>
+            <div class="data-item">
+                <span>Paiements:</span>
+                <span id="paymentCount">Chargement...</span>
+            </div>
+            <div class="data-item">
+                <span>Données d'exemple supprimées:</span>
+                <span id="sampleDataStatus">Chargement...</span>
+            </div>
+        </div>
+        
+        <div class="step">
+            <strong>Étape 2 :</strong> Empêcher la régénération des données d'exemple
+        </div>
+        
+        <h2>🛡️ Protection contre la Régénération</h2>
+        <div>
+            <button class="button success" onclick="clearSampleData()">
+                🚫 Empêcher la Régénération des Données d'Exemple
+            </button>
+            <p style="font-size: 12px; color: #666; margin-top: 5px;">
+                <strong>IMPORTANT :</strong> Cliquez sur ce bouton en premier pour empêcher les données de réapparaître !
+            </p>
+        </div>
+        
+        <div class="step">
+            <strong>Étape 3 :</strong> Tester la suppression des données
+        </div>
+        
+        <h2>🗑️ Test de Suppression</h2>
+        <div>
+            <button class="button danger" onclick="testCandidateDeletion()">
+                🗑️ Supprimer le Premier Candidat
+            </button>
+            <button class="button danger" onclick="testFormationDeletion()">
+                🗑️ Supprimer la Première Formation
+            </button>
+            <button class="button danger" onclick="testPaymentDeletion()">
+                🗑️ Supprimer le Premier Paiement
+            </button>
+        </div>
+        
+        <h2>🔄 Gestion des Données</h2>
+        <div>
+            <button class="button" onclick="refreshData()">
+                🔄 Actualiser l'Affichage
+            </button>
+            <button class="button" onclick="resetData()">
+                🔄 Remettre les Données d'Exemple
+            </button>
+        </div>
+        
+        <h2>📋 Détail des Données</h2>
+        <div class="data-display">
+            <h3>Candidats</h3>
+            <div id="candidateList">Chargement...</div>
+        </div>
+        
+        <div class="data-display">
+            <h3>Formations</h3>
+            <div id="formationList">Chargement...</div>
+        </div>
+        
+        <div class="data-display">
+            <h3>Paiements</h3>
+            <div id="paymentList">Chargement...</div>
+        </div>
+        
+        <div class="step">
+            <strong>Étape 4 :</strong> Vérifier que les suppressions persistent
+        </div>
+        
+        <h2>✅ Vérification</h2>
+        <p>Après avoir supprimé des données :</p>
+        <ol>
+            <li>Cliquez sur "Actualiser l'Affichage"</li>
+            <li>Rafraîchissez la page (F5)</li>
+            <li>Vérifiez que les données supprimées ne réapparaissent pas</li>
+        </ol>
+    </div>
+
+    <script>
+        // Copier la classe DatabaseManager directement dans cette page
+        class DatabaseManager {
+            constructor() {
+                this.storageKey = 'formation-center-data';
+                this.initDatabase();
+            }
+
+            initDatabase() {
+                const existingData = localStorage.getItem(this.storageKey);
+                if (!existingData) {
+                    const initialData = {
+                        candidates: [],
+                        payments: [],
+                        formations: [],
+                        certificates: [],
+                        notifications: [],
+                        settings: this.getDefaultSettings()
+                    };
+                    localStorage.setItem(this.storageKey, JSON.stringify(initialData));
+                }
+            }
+
+            getDefaultSettings() {
+                return {
+                    centerName: "Forci Plus",
+                    centerAddress: "1 er étage, Imm Ayadi, A coté d'impasse Sidi Assem Jendouba 8100 8100 Jendouba, Tunisia",
+                    centerPhone: "+216 78 123 456",
+                    centerEmail: "contact@forciplus.tn",
+                    paymentReminderDays: 7,
+                    autoGenerateCertificates: true,
+                    theme: "light",
+                    language: "fr"
+                };
+            }
+
+            getSampleCandidates() {
+                return [
+                    {
+                        id: 1,
+                        firstName: "Ahmed",
+                        lastName: "Ben Ali",
+                        cin: "AB123456",
+                        phone: "+216 78 12 34 56",
+                        phone2: "+216 78 12 34 57",
+                        email: "ahmed.benali@email.com",
+                        address: "123 Rue Habib Bourguiba, Tunis",
+                        birthDate: "1995-03-15",
+                        registrationDate: "2025-01-15",
+                        status: "Actif",
+                        formationId: 1,
+                        totalPaid: 5000,
+                        remainingAmount: 2000
+                    },
+                    {
+                        id: 2,
+                        firstName: "Fatima",
+                        lastName: "El Amrani",
+                        cin: "FE789012",
+                        phone: "+216 78 98 76 54",
+                        phone2: "",
+                        email: "fatima.elamrani@email.com",
+                        address: "456 Avenue Habib Bourguiba, Sfax",
+                        birthDate: "1998-07-22",
+                        registrationDate: "2025-02-10",
+                        status: "Actif",
+                        formationId: 2,
+                        totalPaid: 3000,
+                        remainingAmount: 4000
+                    }
+                ];
+            }
+
+            getSampleFormations() {
+                return [
+                    {
+                        id: 1,
+                        title: "Développement Web",
+                        description: "Formation complète en développement web moderne",
+                        duration: "6 mois",
+                        price: 7000
+                    },
+                    {
+                        id: 2,
+                        title: "Allemand",
+                        description: "Apprentissage de la langue allemande",
+                        duration: "4 mois",
+                        price: 5000
+                    }
+                ];
+            }
+
+            getSamplePayments() {
+                return [
+                    {
+                        id: 1,
+                        candidateId: 1,
+                        formationId: 1,
+                        amount: 5000,
+                        paymentDate: "2025-01-15",
+                        paymentMethod: "cash",
+                        status: "Payé",
+                        notes: "Paiement initial"
+                    }
+                ];
+            }
+
+            getAllCandidates() {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                return data.candidates || [];
+            }
+
+            getAllFormations() {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                return data.formations || [];
+            }
+
+            getAllPayments() {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                return data.payments || [];
+            }
+
+            deleteCandidate(id) {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                const candidates = data.candidates || [];
+                const filteredCandidates = candidates.filter(candidate => candidate.id !== id);
+                data.candidates = filteredCandidates;
+                localStorage.setItem(this.storageKey, JSON.stringify(data));
+                return true;
+            }
+
+            deleteFormation(id) {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                const formations = data.formations || [];
+                const index = formations.findIndex(formation => formation.id === id);
+                if (index !== -1) {
+                    formations.splice(index, 1);
+                    data.formations = formations;
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+                    return true;
+                }
+                return false;
+            }
+
+            deletePayment(id) {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                const payments = data.payments || [];
+                const paymentIndex = payments.findIndex(payment => payment.id === id);
+                
+                if (paymentIndex !== -1) {
+                    const payment = payments[paymentIndex];
+                    
+                    // Mettre à jour le montant payé du candidat
+                    const candidates = data.candidates || [];
+                    const candidateIndex = candidates.findIndex(c => c.id === payment.candidateId);
+                    if (candidateIndex !== -1) {
+                        candidates[candidateIndex].totalPaid = Math.max(0, candidates[candidateIndex].totalPaid - payment.amount);
+                        const formation = data.formations.find(f => f.id === payment.formationId);
+                        if (formation) {
+                            candidates[candidateIndex].remainingAmount = Math.max(0, formation.price - candidates[candidateIndex].totalPaid);
+                        }
+                        data.candidates = candidates;
+                    }
+                    
+                    payments.splice(paymentIndex, 1);
+                    data.payments = payments;
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+                    return true;
+                }
+                return false;
+            }
+
+            clearSampleData() {
+                const data = this.getData();
+                data.sampleDataCleared = true;
+                localStorage.setItem(this.storageKey, JSON.stringify(data));
+                return true;
+            }
+
+            isSampleDataCleared() {
+                const data = this.getData();
+                return data.sampleDataCleared === true;
+            }
+
+            getData() {
+                try {
+                    const data = JSON.parse(localStorage.getItem(this.storageKey));
+                    if (!data) {
+                        return {
+                            candidates: [],
+                            payments: [],
+                            formations: [],
+                            certificates: [],
+                            notifications: [],
+                            settings: this.getDefaultSettings()
+                        };
+                    }
+                    return data;
+                } catch (error) {
+                    console.error('Error getting data:', error);
+                    return {
+                        candidates: [],
+                        payments: [],
+                        formations: [],
+                        certificates: [],
+                        notifications: [],
+                        settings: this.getDefaultSettings()
+                    };
+                }
+            }
+
+            forceResetAllData() {
+                localStorage.removeItem(this.storageKey);
+                this.initDatabase();
+                return true;
+            }
+
+            getDataCounts() {
+                return {
+                    candidates: this.getAllCandidates().length,
+                    formations: this.getAllFormations().length,
+                    payments: this.getAllPayments().length,
+                    sampleDataCleared: this.isSampleDataCleared()
+                };
+            }
+
+            initializeWithSampleData() {
+                const data = JSON.parse(localStorage.getItem(this.storageKey));
+                
+                if (data.sampleDataCleared === true) {
+                    return;
+                }
+                
+                let hasChanges = false;
+                
+                if (!data.candidates || data.candidates.length === 0) {
+                    data.candidates = this.getSampleCandidates();
+                    hasChanges = true;
+                }
+                if (!data.formations || data.formations.length === 0) {
+                    data.formations = this.getSampleFormations();
+                    hasChanges = true;
+                }
+                if (!data.payments || data.payments.length === 0) {
+                    data.payments = this.getSamplePayments();
+                    hasChanges = true;
+                }
+                
+                if (hasChanges) {
+                    localStorage.setItem(this.storageKey, JSON.stringify(data));
+                }
+            }
+        }
+
+        let dbManager;
+
+        // Initialiser la base de données
+        function initDB() {
+            try {
+                dbManager = new DatabaseManager();
+                updateDataDisplay();
+                showStatus('✅ Base de données initialisée avec succès', 'success');
+            } catch (error) {
+                showStatus('❌ Erreur lors de l\'initialisation: ' + error.message, 'error');
+            }
+        }
+
+        // Mettre à jour l'affichage
+        function updateDataDisplay() {
+            if (!dbManager) return;
+            
+            try {
+                const counts = dbManager.getDataCounts();
+                
+                document.getElementById('candidateCount').textContent = counts.candidates;
+                document.getElementById('formationCount').textContent = counts.formations;
+                document.getElementById('paymentCount').textContent = counts.payments;
+                document.getElementById('sampleDataStatus').textContent = counts.sampleDataCleared ? 'OUI ✅' : 'NON ❌';
+                
+                updateCandidateList();
+                updateFormationList();
+                updatePaymentList();
+                
+            } catch (error) {
+                showStatus('❌ Erreur lors de la mise à jour: ' + error.message, 'error');
+            }
+        }
+
+        // Mettre à jour la liste des candidats
+        function updateCandidateList() {
+            if (!dbManager) return;
+            
+            const candidates = dbManager.getAllCandidates();
+            const listElement = document.getElementById('candidateList');
+            
+            if (candidates.length === 0) {
+                listElement.innerHTML = '<p style="color: #666;">Aucun candidat trouvé</p>';
+                return;
+            }
+            
+            const html = candidates.map(c => 
+                `<div class="data-item">
+                    <span>${c.firstName} ${c.lastName} (${c.cin})</span>
+                    <span>Statut: ${c.status}</span>
+                </div>`
+            ).join('');
+            
+            listElement.innerHTML = html;
+        }
+
+        // Mettre à jour la liste des formations
+        function updateFormationList() {
+            if (!dbManager) return;
+            
+            const formations = dbManager.getAllFormations();
+            const listElement = document.getElementById('formationList');
+            
+            if (formations.length === 0) {
+                listElement.innerHTML = '<p style="color: #666;">Aucune formation trouvée</p>';
+                return;
+            }
+            
+            const html = formations.map(f => 
+                `<div class="data-item">
+                    <span>${f.title}</span>
+                    <span>${f.price} TND</span>
+                </div>`
+            ).join('');
+            
+            listElement.innerHTML = html;
+        }
+
+        // Mettre à jour la liste des paiements
+        function updatePaymentList() {
+            if (!dbManager) return;
+            
+            const payments = dbManager.getAllPayments();
+            const listElement = document.getElementById('paymentList');
+            
+            if (payments.length === 0) {
+                listElement.innerHTML = '<p style="color: #666;">Aucun paiement trouvé</p>';
+                return;
+            }
+            
+            const html = payments.map(p => 
+                `<div class="data-item">
+                    <span>Paiement ${p.id}</span>
+                    <span>${p.amount} TND</span>
+                </div>`
+            ).join('');
+            
+            listElement.innerHTML = html;
+        }
+
+        // Empêcher la régénération des données d'exemple
+        window.clearSampleData = function() {
+            if (!dbManager) {
+                showStatus('❌ Base de données non initialisée', 'error');
+                return;
+            }
+            
+            const success = dbManager.clearSampleData();
+            if (success) {
+                showStatus('✅ Protection activée : Les données d\'exemple ne se régénéreront plus !', 'success');
+                updateDataDisplay();
+            } else {
+                showStatus('❌ Échec de l\'activation de la protection', 'error');
+            }
+        };
+
+        // Tester la suppression de candidat
+        window.testCandidateDeletion = function() {
+            if (!dbManager) {
+                showStatus('❌ Base de données non initialisée', 'error');
+                return;
+            }
+            
+            const candidates = dbManager.getAllCandidates();
+            if (candidates.length === 0) {
+                showStatus('❌ Aucun candidat à supprimer', 'error');
+                return;
+            }
+            
+            const candidateToDelete = candidates[0];
+            const success = dbManager.deleteCandidate(candidateToDelete.id);
+            
+            if (success) {
+                showStatus(`✅ Candidat supprimé avec succès : ${candidateToDelete.firstName} ${candidateToDelete.lastName}`, 'success');
+                updateDataDisplay();
+            } else {
+                showStatus('❌ Échec de la suppression du candidat', 'error');
+            }
+        };
+
+        // Tester la suppression de formation
+        window.testFormationDeletion = function() {
+            if (!dbManager) {
+                showStatus('❌ Base de données non initialisée', 'error');
+                return;
+            }
+            
+            const formations = dbManager.getAllFormations();
+            if (formations.length === 0) {
+                showStatus('❌ Aucune formation à supprimer', 'error');
+                return;
+            }
+            
+            const formationToDelete = formations[0];
+            const success = dbManager.deleteFormation(formationToDelete.id);
+            
+            if (success) {
+                showStatus(`✅ Formation supprimée avec succès : ${formationToDelete.title}`, 'success');
+                updateDataDisplay();
+            } else {
+                showStatus('❌ Échec de la suppression de la formation', 'error');
+            }
+        };
+
+        // Tester la suppression de paiement
+        window.testPaymentDeletion = function() {
+            if (!dbManager) {
+                showStatus('❌ Base de données non initialisée', 'error');
+                return;
+            }
+            
+            const payments = dbManager.getAllPayments();
+            if (payments.length === 0) {
+                showStatus('❌ Aucun paiement à supprimer', 'error');
+                return;
+            }
+            
+            const paymentToDelete = payments[0];
+            const success = dbManager.deletePayment(paymentToDelete.id);
+            
+            if (success) {
+                showStatus(`✅ Paiement supprimé avec succès : ${paymentToDelete.amount} TND`, 'success');
+                updateDataDisplay();
+            } else {
+                showStatus('❌ Échec de la suppression du paiement', 'error');
+            }
+        };
+
+        // Remettre les données d'exemple
+        window.resetData = function() {
+            if (!dbManager) {
+                showStatus('❌ Base de données non initialisée', 'error');
+                return;
+            }
+            
+            const success = dbManager.forceResetAllData();
+            if (success) {
+                showStatus('✅ Toutes les données ont été remises à zéro', 'info');
+                updateDataDisplay();
+            } else {
+                showStatus('❌ Échec de la remise à zéro', 'error');
+            }
+        };
+
+        // Actualiser l'affichage
+        window.refreshData = function() {
+            updateDataDisplay();
+            showStatus('🔄 Données actualisées', 'success');
+        };
+
+        // Afficher un message de statut
+        function showStatus(message, type = 'success') {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+            
+            setTimeout(() => {
+                statusElement.textContent = '';
+                statusElement.className = 'status';
+            }, 8000);
+        }
+
+        // Initialiser quand la page se charge
+        document.addEventListener('DOMContentLoaded', initDB);
+    </script>
+</body>
+</html>
+
