@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import DatabaseManager from '../utils/database.js';
+import { useAuth } from '../contexts/AuthContext';
 
 const Formations = () => {
   const { isDark } = useTheme();
+  const { apiService } = useAuth();
   const [formations, setFormations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -29,17 +30,9 @@ const Formations = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler le chargement des données
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Utiliser le DatabaseManager pour charger les données
-      const dbManager = new DatabaseManager();
-      
-      // Initialiser avec des données d'exemple si c'est la première fois
-      dbManager.initializeWithSampleData();
-      
-      const savedFormations = dbManager.getAllFormations();
-      setFormations(savedFormations);
+      // Charger les formations depuis l'API
+      const formationsData = await apiService.getFormations();
+      setFormations(formationsData);
     } catch (err) {
       console.error('Erreur lors du chargement des formations:', err);
       setError('Erreur lors du chargement des formations');
@@ -63,24 +56,16 @@ const Formations = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler la sauvegarde
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const dbManager = new DatabaseManager();
-      
       if (editingId) {
         // Modification
-        const updated = dbManager.updateFormation(editingId, formData);
-        if (updated) {
-          setFormations(dbManager.getAllFormations());
-        }
+        await apiService.updateFormation(editingId, formData);
       } else {
         // Nouvelle formation
-        const newFormation = dbManager.createFormation(formData);
-        if (newFormation) {
-          setFormations(dbManager.getAllFormations());
-        }
+        await apiService.createFormation(formData);
       }
+      
+      // Recharger les données
+      await loadFormations();
       
       resetForm();
       setShowForm(false);
@@ -117,15 +102,10 @@ const Formations = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler la suppression
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await apiService.deleteFormation(formationId);
       
-      const dbManager = new DatabaseManager();
-      const success = dbManager.deleteFormation(formationId);
-      
-      if (success) {
-        setFormations(dbManager.getAllFormations());
-      }
+      // Recharger les données
+      await loadFormations();
     } catch (err) {
       console.error('Erreur lors de la suppression:', err);
       setError('Erreur lors de la suppression de la formation');

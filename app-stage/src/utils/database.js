@@ -29,97 +29,31 @@ class DatabaseManager {
 
   getSampleCandidates() {
     return [
-      {
-        id: 1,
-        firstName: "Ahmed",
-        lastName: "Ben Ali",
-        cin: "AB123456",
-        phone: "+216 78 12 34 56",
-        phone2: "+216 78 12 34 57",
-        email: "ahmed.benali@email.com",
-        address: "123 Rue Habib Bourguiba, Tunis",
-        birthDate: "1995-03-15",
-        registrationDate: "2025-01-15",
-        status: "Actif",
-        formationId: 1,
-        totalPaid: 5000,
-        remainingAmount: 2000
-      },
-      {
-        id: 2,
-        firstName: "Fatima",
-        lastName: "El Amrani",
-        cin: "FE789012",
-        phone: "+216 78 98 76 54",
-        phone2: "",
-        email: "fatima.elamrani@email.com",
-        address: "456 Avenue Habib Bourguiba, Sfax",
-        birthDate: "1998-07-22",
-        registrationDate: "2025-02-10",
-        status: "Actif",
-        formationId: 2,
-        totalPaid: 3000,
-        remainingAmount: 4000
-      }
+      
     ];
   }
 
   getSampleFormations() {
     return [
-      {
-        id: 1,
-        title: "Développement Web",
-        description: "Formation complète en développement web moderne",
-        duration: "6 mois",
-        price: 7000
-      },
-      {
-        id: 2,
-        title: "Allemand",
-        description: "Apprentissage de la langue allemande",
-        duration: "4 mois",
-        price: 5000
-      }
+     
     ];
   }
 
   getSamplePayments() {
     return [
-      {
-        id: 1,
-        candidateId: 1,
-        formationId: 1,
-        amount: 5000,
-        paymentDate: "2025-01-15",
-        paymentMethod: "cash",
-        status: "Payé",
-        notes: "Paiement initial"
-      }
+      
     ];
   }
 
   getSampleCertificates() {
     return [
-      {
-        id: 1,
-        candidateId: 1,
-        formationId: 1,
-        certificateNumber: "CERT-2025-001",
-        issueDate: "2025-01-15",
-        status: "Généré"
-      }
+     
     ];
   }
 
   getSampleNotifications() {
     return [
-      {
-        id: 1,
-        title: "Bienvenue",
-        message: "Bienvenue dans votre centre de formation",
-        date: "2025-01-15",
-        status: "Lu"
-      }
+      
     ];
   }
 

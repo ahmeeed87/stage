@@ -1,8 +1,21 @@
 class ApiService {
   constructor() {
+    // Use environment variable or fallback to localhost for development
     this.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
     this.token = localStorage.getItem('auth_token');
     this.refreshToken = localStorage.getItem('refresh_token');
+    
+    // Rate limiting configuration
+    this.rateLimitConfig = {
+      maxRetries: 3,
+      baseDelay: 1000, // 1 second
+      maxDelay: 30000, // 30 seconds
+      retryStatuses: [429, 500, 502, 503, 504]
+    };
+    
+    // Request tracking for rate limiting
+    this.requestQueue = [];
+    this.isProcessingQueue = false;
   }
 
   // Set authentication token
@@ -38,33 +51,126 @@ class ApiService {
     return headers;
   }
 
-  // Make HTTP request with error handling
-  async makeRequest(endpoint, options = {}) {
-    try {
-      const url = `${this.baseURL}${endpoint}`;
-      const config = {
-        headers: this.getHeaders(),
-        ...options,
-      };
+  // Calculate exponential backoff delay
+  calculateBackoffDelay(attempt) {
+    const delay = Math.min(
+      this.rateLimitConfig.baseDelay * Math.pow(2, attempt),
+      this.rateLimitConfig.maxDelay
+    );
+    // Add jitter to prevent thundering herd
+    return delay + Math.random() * 1000;
+  }
 
-      const response = await fetch(url, config);
+  // Wait for specified time
+  async wait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Process request queue with rate limiting
+  async processRequestQueue() {
+    if (this.isProcessingQueue || this.requestQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    while (this.requestQueue.length > 0) {
+      const request = this.requestQueue.shift();
       
-      // Handle token refresh if 401
-      if (response.status === 401 && this.refreshToken) {
-        const refreshed = await this.refreshAuthToken();
-        if (refreshed) {
-          // Retry the original request
-          config.headers = this.getHeaders();
+      try {
+        // Add delay between requests to respect rate limits
+        if (this.requestQueue.length > 0) {
+          await this.wait(100); // 100ms delay between requests
+        }
+        
+        const result = await this.executeRequest(request.execute);
+        request.resolve(result);
+      } catch (error) {
+        request.reject(error);
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  // Add request to queue
+  async queueRequest(requestFn) {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push({
+        execute: requestFn,
+        resolve,
+        reject
+      });
+      
+      this.processRequestQueue();
+    });
+  }
+
+  // Execute a single request with retry logic
+  async executeRequest(requestFn, retryCount = 0) {
+    try {
+      return await requestFn();
+    } catch (error) {
+      // Check if we should retry
+      if (retryCount < this.rateLimitConfig.maxRetries && 
+          this.rateLimitConfig.retryStatuses.includes(error.status)) {
+        
+        const delay = this.calculateBackoffDelay(retryCount);
+        console.log(`Request failed with status ${error.status}, retrying in ${delay}ms (attempt ${retryCount + 1})`);
+        
+        await this.wait(delay);
+        return this.executeRequest(requestFn, retryCount + 1);
+      }
+      
+      throw error;
+    }
+  }
+
+  // Make HTTP request with error handling and rate limiting
+  async makeRequest(endpoint, options = {}) {
+    const requestFn = async () => {
+      try {
+        const url = `${this.baseURL}${endpoint}`;
+        const config = {
+          headers: this.getHeaders(),
+          ...options,
+        };
+
+        const response = await fetch(url, config);
+        
+        // Handle rate limiting specifically
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const delay = retryAfter ? parseInt(retryAfter) * 1000 : this.calculateBackoffDelay(0);
+          
+          console.log(`Rate limited, waiting ${delay}ms before retry`);
+          await this.wait(delay);
+          
+          // Retry the request once after waiting
           const retryResponse = await fetch(url, config);
           return this.handleResponse(retryResponse);
         }
-      }
+        
+        // Handle token refresh if 401
+        if (response.status === 401 && this.refreshToken) {
+          const refreshed = await this.refreshAuthToken();
+          if (refreshed) {
+            // Retry the original request
+            config.headers = this.getHeaders();
+            const retryResponse = await fetch(url, config);
+            return this.handleResponse(retryResponse);
+          }
+        }
 
-      return this.handleResponse(response);
-    } catch (error) {
-      console.error('API Request Error:', error);
-      throw new Error(`Network error: ${error.message}`);
-    }
+        return this.handleResponse(response);
+      } catch (error) {
+        console.error('API Request Error:', error);
+        throw new Error(`Network error: ${error.message}`);
+      }
+    };
+
+    // Queue the request to respect rate limits
+    return this.queueRequest(requestFn);
   }
 
   // Handle API response
@@ -75,13 +181,18 @@ class ApiService {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || `HTTP ${response.status}`);
+        const error = new Error(data.message || `HTTP ${response.status}`);
+        error.status = response.status;
+        error.data = data;
+        throw error;
       }
       
       return data;
     } else {
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        const error = new Error(`HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
       }
       
       return await response.text();
@@ -419,6 +530,19 @@ class ApiService {
   // Get API version
   async getApiVersion() {
     return this.makeRequest('/version');
+  }
+
+  // Utility method to check if error is rate limiting
+  isRateLimitError(error) {
+    return error.status === 429;
+  }
+
+  // Utility method to get retry after delay from error
+  getRetryAfterDelay(error) {
+    if (error.data && error.data.retryAfter) {
+      return parseInt(error.data.retryAfter) * 1000;
+    }
+    return this.rateLimitConfig.baseDelay;
   }
 }
 

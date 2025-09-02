@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import DatabaseManager from '../utils/database';
+import { useAuth } from '../contexts/AuthContext';
 
 const Payments = () => {
   const { isDark } = useTheme();
+  const { apiService } = useAuth();
   const [payments, setPayments] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [formations, setFormations] = useState([]);
@@ -11,6 +12,7 @@ const Payments = () => {
   const [error, setError] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     candidateId: '',
     formationId: '',
@@ -34,22 +36,16 @@ const Payments = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler le chargement des données
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Charger les données depuis l'API
+      const [paymentsData, candidatesData, formationsData] = await Promise.all([
+        apiService.getPayments(),
+        apiService.getCandidates(),
+        apiService.getFormations()
+      ]);
       
-      // Utiliser le DatabaseManager pour charger les données
-      const dbManager = new DatabaseManager();
-      
-      // Initialiser avec des données d'exemple si c'est la première fois
-      dbManager.initializeWithSampleData();
-      
-      const savedPayments = dbManager.getAllPayments();
-      const savedCandidates = dbManager.getAllCandidates();
-      const savedFormations = dbManager.getAllFormations();
-      
-      setPayments(savedPayments);
-      setCandidates(savedCandidates);
-      setFormations(savedFormations);
+      setPayments(paymentsData);
+      setCandidates(candidatesData);
+      setFormations(formationsData);
     } catch (err) {
       console.error('Erreur lors du chargement des données:', err);
       setError('Erreur lors du chargement des données');
@@ -70,8 +66,8 @@ const Payments = () => {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
     
-    // Mettre à jour le reste à payer si le candidat ou la formation change
-    if (name === 'candidateId' || name === 'formationId') {
+    // Mettre à jour le reste à payer si le candidat, la formation ou le montant change
+    if (name === 'candidateId' || name === 'formationId' || name === 'amount') {
       updateRemainingAmount();
     }
   };
@@ -83,8 +79,22 @@ const Payments = () => {
       
       if (candidate && formation) {
         const totalAmount = formation.price;
-        const paidAmount = candidate.totalPaid || 0;
-        const remaining = totalAmount - paidAmount;
+        
+        // Calculate total paid by this candidate for this specific formation
+        const candidatePayments = payments.filter(p => 
+          p.candidateId === parseInt(formData.candidateId) && 
+          p.formationId === parseInt(formData.formationId) &&
+          p.status !== 'Annulé' // Exclude cancelled payments
+        );
+        
+        const totalPaidForFormation = candidatePayments.reduce((sum, p) => sum + p.amount, 0);
+        
+        // Add the current payment amount if we're editing
+        const currentPaymentAmount = editingId && formData.amount ? 
+          parseFloat(formData.amount.replace(',', '.')) : 0;
+        
+        const totalPaid = totalPaidForFormation + currentPaymentAmount;
+        const remaining = totalAmount - totalPaid;
         
         setRemainingAmount(Math.max(0, remaining));
         setFormationPrice(totalAmount);
@@ -104,28 +114,23 @@ const Payments = () => {
       setLoading(true);
       setError(null);
       
-      const dbManager = new DatabaseManager();
+      const paymentData = {
+        ...formData,
+        amount: parseFloat(formData.amount.replace(',', '.')),
+        candidateId: parseInt(formData.candidateId),
+        formationId: parseInt(formData.formationId)
+      };
       
       if (editingId) {
         // Modification du paiement
-        const updatedPayment = { ...formData, id: editingId };
-        // Note: updatePayment method would need to be implemented in DatabaseManager
-        setPayments(prev => prev.map(p => p.id === editingId ? updatedPayment : p));
+        await apiService.updatePayment(editingId, paymentData);
       } else {
         // Nouveau paiement
-        const newPayment = dbManager.createPayment({
-          ...formData,
-          amount: parseFloat(formData.amount.replace(',', '.')),
-          candidateId: parseInt(formData.candidateId),
-          formationId: parseInt(formData.formationId)
-        });
-        
-        if (newPayment) {
-          setPayments(prev => [...prev, newPayment]);
-          // Mettre à jour la liste des candidats
-          setCandidates(dbManager.getAllCandidates());
-        }
+        await apiService.createPayment(paymentData);
       }
+      
+      // Recharger les données
+      await loadData();
       
       // Réinitialiser le formulaire
       setFormData({
@@ -174,18 +179,10 @@ const Payments = () => {
       setLoading(true);
       setError(null);
       
-      const dbManager = new DatabaseManager();
-      const success = dbManager.deletePayment(paymentId);
+      await apiService.deletePayment(paymentId);
       
-      if (success) {
-        // Recharger les données depuis la base
-        const updatedPayments = dbManager.getAllPayments();
-        const updatedCandidates = dbManager.getAllCandidates();
-        setPayments(updatedPayments);
-        setCandidates(updatedCandidates);
-      } else {
-        setError('Erreur lors de la suppression du paiement');
-      }
+      // Recharger les données
+      await loadData();
     } catch (err) {
       console.error('Erreur lors de la suppression:', err);
       setError('Erreur lors de la suppression du paiement');
@@ -212,6 +209,32 @@ const Payments = () => {
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
     }
   };
+
+  // Calculate remaining amount for a specific payment
+  const getRemainingAmountForPayment = (payment) => {
+    const formation = formations.find(f => f.id === payment.formationId);
+    if (!formation) return 0;
+
+    const candidatePayments = payments.filter(p => 
+      p.candidateId === payment.candidateId && 
+      p.formationId === payment.formationId &&
+      p.status !== 'Annulé'
+    );
+
+    const totalPaid = candidatePayments.reduce((sum, p) => sum + p.amount, 0);
+    return Math.max(0, formation.price - totalPaid);
+  };
+
+  // Filter payments based on search term
+  const filteredPayments = payments.filter(payment => {
+    if (!searchTerm) return true;
+    
+    const candidateName = getCandidateName(payment.candidateId).toLowerCase();
+    const formationName = getFormationName(payment.formationId).toLowerCase();
+    const searchLower = searchTerm.toLowerCase();
+    
+    return candidateName.includes(searchLower) || formationName.includes(searchLower);
+  });
 
   if (error) {
     return (
@@ -248,6 +271,39 @@ const Payments = () => {
             >
               Nouveau paiement
             </button>
+          </div>
+
+          {/* Search Bar */}
+          <div className="mb-6">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Rechercher par nom de candidat ou formation..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                >
+                  <svg className="h-5 w-5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            {searchTerm && (
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                {filteredPayments.length} paiement(s) trouvé(s) pour "{searchTerm}"
+              </p>
+            )}
           </div>
 
           {loading ? (
@@ -340,12 +396,15 @@ const Payments = () => {
                           Statut
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                          Reste à payer
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                           Actions
                         </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                      {payments.map((payment) => (
+                      {filteredPayments.map((payment) => (
                         <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                             {getCandidateName(payment.candidateId)}
@@ -363,6 +422,20 @@ const Payments = () => {
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(payment.status)}`}>
                               {payment.status}
                             </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {(() => {
+                              const remaining = getRemainingAmountForPayment(payment);
+                              return remaining > 0 ? (
+                                <span className="text-orange-600 dark:text-orange-400 font-medium">
+                                  {remaining.toLocaleString('fr-FR')} TND
+                                </span>
+                              ) : (
+                                <span className="text-green-600 dark:text-green-400 font-medium">
+                                  ✓ Payé
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <button
@@ -382,9 +455,11 @@ const Payments = () => {
                       ))}
                     </tbody>
                   </table>
-                  {payments.length === 0 && (
+                  {filteredPayments.length === 0 && (
                     <div className="text-center py-8">
-                      <p className="text-gray-500 dark:text-gray-400">Aucun paiement trouvé</p>
+                      <p className="text-gray-500 dark:text-gray-400">
+                        {searchTerm ? `Aucun paiement trouvé pour "${searchTerm}"` : 'Aucun paiement trouvé'}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -440,6 +515,49 @@ const PaymentForm = ({
   loading, 
   editingId 
 }) => {
+  const [candidateSearchTerm, setCandidateSearchTerm] = useState('');
+  const [showCandidateDropdown, setShowCandidateDropdown] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showCandidateDropdown && !event.target.closest('.candidate-dropdown')) {
+        setShowCandidateDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showCandidateDropdown]);
+
+  // Filter candidates based on search term
+  const filteredCandidates = candidates.filter(candidate => {
+    if (!candidateSearchTerm) return true;
+    const fullName = `${candidate.firstName} ${candidate.lastName}`.toLowerCase();
+    const searchLower = candidateSearchTerm.toLowerCase();
+    return fullName.includes(searchLower) || candidate.cin.toLowerCase().includes(searchLower);
+  });
+
+  // Get selected candidate name for display
+  const getSelectedCandidateName = () => {
+    if (!formData.candidateId) return '';
+    const candidate = candidates.find(c => c.id === parseInt(formData.candidateId));
+    return candidate ? `${candidate.firstName} ${candidate.lastName} - ${candidate.cin}` : '';
+  };
+
+  const handleCandidateSelect = (candidate) => {
+    onInputChange({
+      target: {
+        name: 'candidateId',
+        value: candidate.id.toString()
+      }
+    });
+    setCandidateSearchTerm('');
+    setShowCandidateDropdown(false);
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
@@ -452,20 +570,48 @@ const PaymentForm = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Candidat *</label>
-              <select
-                name="candidateId"
-                value={formData.candidateId}
-                onChange={onInputChange}
-                required
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Sélectionner un candidat</option>
-                {candidates.map(candidate => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.firstName} {candidate.lastName} - {candidate.cin}
-                  </option>
-                ))}
-              </select>
+              <div className="relative candidate-dropdown">
+                <input
+                  type="text"
+                  placeholder="Rechercher un candidat..."
+                  value={candidateSearchTerm || getSelectedCandidateName()}
+                  onChange={(e) => {
+                    setCandidateSearchTerm(e.target.value);
+                    setShowCandidateDropdown(true);
+                    if (!e.target.value) {
+                      onInputChange({
+                        target: {
+                          name: 'candidateId',
+                          value: ''
+                        }
+                      });
+                    }
+                  }}
+                  onFocus={() => setShowCandidateDropdown(true)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-600 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {showCandidateDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredCandidates.length > 0 ? (
+                      filteredCandidates.map(candidate => (
+                        <div
+                          key={candidate.id}
+                          onClick={() => handleCandidateSelect(candidate)}
+                          className="px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer text-gray-900 dark:text-white"
+                        >
+                          <div className="font-medium">{candidate.firstName} {candidate.lastName}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">CIN: {candidate.cin}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-gray-500 dark:text-gray-400">
+                        Aucun candidat trouvé
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Formation *</label>
@@ -536,12 +682,54 @@ const PaymentForm = ({
             </div>
           </div>
           
-          {remainingAmount > 0 && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                <strong>Prix de la formation:</strong> {formationPrice} TND<br />
-                <strong>Reste à payer:</strong> {remainingAmount} TND
-              </p>
+          {formData.candidateId && formData.formationId && (
+            <div className={`rounded-lg p-4 border ${
+              remainingAmount > 0 
+                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800' 
+                : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+            }`}>
+              <div className="flex items-center space-x-2 mb-2">
+                {remainingAmount > 0 ? (
+                  <svg className="h-5 w-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                )}
+                <h4 className={`font-semibold ${
+                  remainingAmount > 0 
+                    ? 'text-yellow-800 dark:text-yellow-200' 
+                    : 'text-green-800 dark:text-green-200'
+                }`}>
+                  {remainingAmount > 0 ? 'Reste à payer' : 'Formation payée intégralement'}
+                </h4>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Prix total:</span>
+                  <span className="ml-2 font-bold text-gray-900 dark:text-white">{formationPrice.toLocaleString('fr-FR')} TND</span>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">Déjà payé:</span>
+                  <span className="ml-2 font-bold text-gray-900 dark:text-white">
+                    {(formationPrice - remainingAmount).toLocaleString('fr-FR')} TND
+                  </span>
+                </div>
+              </div>
+              
+              {remainingAmount > 0 && (
+                <div className="mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-700">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-yellow-800 dark:text-yellow-200">Reste à payer:</span>
+                    <span className="text-lg font-bold text-yellow-900 dark:text-yellow-100">
+                      {remainingAmount.toLocaleString('fr-FR')} TND
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           

@@ -11,7 +11,7 @@ import {
   Eye,
   Plus
 } from 'lucide-react';
-import DatabaseManager from '../utils/database.js';
+import { useAuth } from '../contexts/AuthContext';
 
 // Fonction utilitaire pour obtenir la couleur du statut
 const getStatusColor = (status) => {
@@ -24,6 +24,7 @@ const getStatusColor = (status) => {
 };
 
 const Certificates = () => {
+  const { apiService } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [certificates, setCertificates] = useState([]);
   const [candidates, setCandidates] = useState([]);
@@ -33,24 +34,34 @@ const Certificates = () => {
   const [selectedCertificate, setSelectedCertificate] = useState(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [selectedFormation, setSelectedFormation] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Initialiser les données depuis DatabaseManager
+  // Initialiser les données depuis l'API
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
     try {
-      const dbManager = new DatabaseManager();
+      setLoading(true);
+      setError(null);
       
-      // Initialiser avec des données d'exemple si c'est la première fois
-      dbManager.initializeWithSampleData();
+      // Charger les données depuis l'API
+      const [certificatesData, candidatesData, formationsData] = await Promise.all([
+        apiService.getCertificates(),
+        apiService.getCandidates(),
+        apiService.getFormations()
+      ]);
       
-      setCertificates(dbManager.getAllCertificates());
-      setCandidates(dbManager.getAllCandidates());
-      setFormations(dbManager.getAllFormations());
+      setCertificates(certificatesData);
+      setCandidates(candidatesData);
+      setFormations(formationsData);
     } catch (err) {
       console.error('Erreur lors du chargement des données:', err);
+      setError('Erreur lors du chargement des données');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -68,8 +79,8 @@ const Certificates = () => {
   const generatePDF = async (certificate) => {
     setIsGeneratingPDF(true);
     try {
-      // Simuler la génération de PDF
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Utiliser l'API pour générer le PDF
+      const pdfData = await apiService.generateCertificatePDF(certificate.id);
       
       // Pour l'instant, on simule juste le téléchargement
       const link = document.createElement('a');
@@ -94,17 +105,18 @@ const Certificates = () => {
 
   const handleCreateCertificate = async (formData) => {
     try {
-      const dbManager = new DatabaseManager();
+      setLoading(true);
+      setError(null);
       
       const candidate = candidates.find(c => c.id === parseInt(formData.candidateId));
       const formation = formations.find(f => f.id === parseInt(formData.formationId));
       
       if (!candidate || !formation) {
-        alert('Candidat ou formation non trouvé');
+        setError('Candidat ou formation non trouvé');
         return;
       }
       
-      const newCertificate = dbManager.createCertificate({
+      await apiService.createCertificate({
         candidateId: parseInt(formData.candidateId),
         formationId: parseInt(formData.formationId),
         candidateName: `${candidate.firstName} ${candidate.lastName}`,
@@ -112,14 +124,15 @@ const Certificates = () => {
         notes: formData.notes || ''
       });
       
-      if (newCertificate) {
-        setCertificates(dbManager.getAllCertificates());
-        setShowForm(false);
-        alert('Certificat créé avec succès !');
-      }
+      // Recharger les données
+      await loadData();
+      setShowForm(false);
+      alert('Certificat créé avec succès !');
     } catch (error) {
       console.error('Erreur lors de la création du certificat:', error);
-      alert('Erreur lors de la création du certificat');
+      setError('Erreur lors de la création du certificat');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -132,6 +145,27 @@ const Certificates = () => {
     const formation = formations.find(f => f.id === formationId);
     return formation ? formation.title : 'Formation inconnue';
   };
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-4">
+              Erreur
+            </h2>
+            <p className="text-red-700 dark:text-red-300 mb-4">{error}</p>
+            <button
+              onClick={loadData}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
@@ -185,79 +219,88 @@ const Certificates = () => {
             </div>
           </div>
 
-          {/* Statistiques */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
-              <div className="flex items-center">
-                <FileText className="h-8 w-8 text-blue-500" />
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total certificats</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{certificates.length}</p>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">Chargement...</p>
+            </div>
+          ) : (
+            <>
+              {/* Statistiques */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-center">
+                    <FileText className="h-8 w-8 text-blue-500" />
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total certificats</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{certificates.length}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-center">
+                    <div className="h-8 w-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                      <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Générés</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {certificates.filter(c => c.status === 'Généré').length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-center">
+                    <div className="h-8 w-8 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
+                      <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-400">En cours</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {certificates.filter(c => c.status === 'En cours').length}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
+                  <div className="flex items-center">
+                    <div className="h-8 w-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
+                      <User className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Candidats</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-white">{candidates.length}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
-              <div className="flex items-center">
-                <div className="h-8 w-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Générés</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {certificates.filter(c => c.status === 'Généré').length}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
-              <div className="flex items-center">
-                <div className="h-8 w-8 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
-                  <Clock className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">En cours</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {certificates.filter(c => c.status === 'En cours').length}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-700 rounded-lg shadow p-4 border border-gray-200 dark:border-gray-600">
-              <div className="flex items-center">
-                <div className="h-8 w-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-                  <User className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Candidats</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{candidates.length}</p>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Liste des certificats */}
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Liste des certificats</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredCertificates.map((certificate) => (
-                <CertificateCard 
-                  key={certificate.id} 
-                  certificate={certificate}
-                  onView={() => {
-                    setSelectedCertificate(certificate);
-                    setShowDetails(true);
-                  }}
-                  onGeneratePDF={() => generatePDF(certificate)}
-                  isGeneratingPDF={isGeneratingPDF}
-                />
-              ))}
-            </div>
-            {filteredCertificates.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-gray-500 dark:text-gray-400">Aucun certificat trouvé</p>
+              {/* Liste des certificats */}
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Liste des certificats</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredCertificates.map((certificate) => (
+                    <CertificateCard 
+                      key={certificate.id} 
+                      certificate={certificate}
+                      onView={() => {
+                        setSelectedCertificate(certificate);
+                        setShowDetails(true);
+                      }}
+                      onGeneratePDF={() => generatePDF(certificate)}
+                      isGeneratingPDF={isGeneratingPDF}
+                    />
+                  ))}
+                </div>
+                {filteredCertificates.length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 dark:text-gray-400">Aucun certificat trouvé</p>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </>
+          )}
 
           {/* Modals */}
           {showForm && (

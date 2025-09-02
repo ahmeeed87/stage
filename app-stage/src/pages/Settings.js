@@ -1,28 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
   const { isDark, toggleTheme } = useTheme();
+  const { apiService } = useAuth();
   const [settings, setSettings] = useState({
     notifications: true,
     autoSave: true,
     language: 'fr'
   });
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const loadSettings = async () => {
     try {
-      const savedSettings = localStorage.getItem('appSettings');
-      if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
-      }
+      setInitialLoading(true);
+      setError(null);
+      
+      // Charger les paramètres depuis l'API
+      const apiSettings = await apiService.getSettings();
+      
+      // Fusionner avec les paramètres locaux par défaut
+      setSettings({
+        notifications: apiSettings.notifications ?? true,
+        autoSave: apiSettings.autoSave ?? true,
+        language: apiSettings.language ?? 'fr'
+      });
     } catch (err) {
       console.error('Erreur lors du chargement des paramètres:', err);
-      setError('Erreur lors du chargement des paramètres');
+      // En cas d'erreur, utiliser les paramètres par défaut
+      setSettings({
+        notifications: true,
+        autoSave: true,
+        language: 'fr'
+      });
+    } finally {
+      setInitialLoading(false);
     }
-  }, []);
+  };
 
   const handleSettingChange = (key, value) => {
     try {
@@ -41,12 +63,10 @@ const Settings = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler une sauvegarde
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Sauvegarder les paramètres via l'API
+      await apiService.updateSettings(settings);
       
-      localStorage.setItem('appSettings', JSON.stringify(settings));
       setSuccess(true);
-      
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error('Erreur lors de la sauvegarde:', err);
@@ -56,19 +76,32 @@ const Settings = () => {
     }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
       const defaultSettings = {
         notifications: true,
         autoSave: true,
         language: 'fr'
       };
+      
+      // Réinitialiser via l'API
+      await apiService.updateSettings(defaultSettings);
+      
       setSettings(defaultSettings);
       setSuccess(false);
       setError(null);
+      
+      // Afficher un message de succès
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error('Erreur lors de la réinitialisation:', err);
       setError('Erreur lors de la réinitialisation');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -87,6 +120,19 @@ const Settings = () => {
             >
               Fermer
             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-gray-600 dark:text-gray-400">Chargement des paramètres...</p>
           </div>
         </div>
       </div>
@@ -252,9 +298,10 @@ const Settings = () => {
                   </div>
                   <button
                     onClick={handleReset}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    disabled={loading}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    Réinitialiser
+                    {loading ? 'Réinitialisation...' : 'Réinitialiser'}
                   </button>
                 </div>
               </div>

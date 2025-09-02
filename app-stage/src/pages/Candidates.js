@@ -13,9 +13,10 @@ import {
   CreditCard,
   BookOpen
 } from 'lucide-react';
-import DatabaseManager from '../utils/database.js';
+import { useAuth } from '../contexts/AuthContext';
 
 const Candidates = () => {
+  const { apiService } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
@@ -29,7 +30,7 @@ const Candidates = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Initialiser les données depuis DatabaseManager
+  // Initialiser les données depuis l'API
   useEffect(() => {
     loadData();
   }, []);
@@ -39,20 +40,14 @@ const Candidates = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler le chargement des données
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Charger les candidats et formations depuis l'API
+      const [candidatesData, formationsData] = await Promise.all([
+        apiService.getCandidates(),
+        apiService.getFormations()
+      ]);
       
-      // Utiliser le DatabaseManager pour charger les données
-      const dbManager = new DatabaseManager();
-      
-      // Initialiser avec des données d'exemple si c'est la première fois
-      dbManager.initializeWithSampleData();
-      
-      const savedCandidates = dbManager.getAllCandidates();
-      const savedFormations = dbManager.getAllFormations();
-      
-      setCandidates(savedCandidates);
-      setFormations(savedFormations);
+      setCandidates(candidatesData);
+      setFormations(formationsData);
     } catch (err) {
       console.error('Erreur lors du chargement des données:', err);
       setError('Erreur lors du chargement des données');
@@ -103,22 +98,16 @@ const Candidates = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler la sauvegarde
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const dbManager = new DatabaseManager();
-      
       if (editingCandidate) {
         // Modification
-        const updated = dbManager.updateCandidate(editingCandidate.id, data);
-        if (updated) {
-          setCandidates(dbManager.getAllCandidates());
-        }
+        await apiService.updateCandidate(editingCandidate.id, data);
       } else {
         // Ajout
-        const newCandidate = dbManager.createCandidate(data);
-        setCandidates(dbManager.getAllCandidates());
+        await apiService.createCandidate(data);
       }
+      
+      // Recharger les données
+      await loadData();
       
       setShowForm(false);
       setEditingCandidate(null);
@@ -139,15 +128,10 @@ const Candidates = () => {
       setLoading(true);
       setError(null);
       
-      // Simuler la suppression
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await apiService.deleteCandidate(candidateId);
       
-      const dbManager = new DatabaseManager();
-      const success = dbManager.deleteCandidate(candidateId);
-      
-      if (success) {
-        setCandidates(dbManager.getAllCandidates());
-      }
+      // Recharger les données
+      await loadData();
     } catch (err) {
       console.error('Erreur lors de la suppression:', err);
       setError('Erreur lors de la suppression du candidat');
@@ -161,12 +145,10 @@ const Candidates = () => {
       setLoading(true);
       setError(null);
       
-      const dbManager = new DatabaseManager();
-      const updated = dbManager.updateCandidate(candidateId, { status: 'En attente de paiement' });
+      await apiService.updateCandidate(candidateId, { status: 'En attente de paiement' });
       
-      if (updated) {
-        setCandidates(dbManager.getAllCandidates());
-      }
+      // Recharger les données
+      await loadData();
     } catch (err) {
       console.error('Erreur lors de la mise à jour:', err);
       setError('Erreur lors de la mise à jour du statut');

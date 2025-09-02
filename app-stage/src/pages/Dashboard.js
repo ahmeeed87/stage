@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
-import DatabaseManager from '../utils/database';
+import { useAuth } from '../contexts/AuthContext';
+import RateLimitHandler from '../components/RateLimitHandler';
 
 const Dashboard = () => {
   const { isDark } = useTheme();
+  const { apiService } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalCandidates: 0,
@@ -12,8 +14,11 @@ const Dashboard = () => {
     totalPayments: 0,
     totalCertificates: 0
   });
+  const [chartData, setChartData] = useState(null);
+  const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [retryAfter, setRetryAfter] = useState(0);
 
   useEffect(() => {
     loadDashboardData();
@@ -23,25 +28,45 @@ const Dashboard = () => {
     try {
       setLoading(true);
       setError(null);
+      setRetryAfter(0);
       
-      // Simuler le chargement des données
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Load dashboard statistics
+      const dashboardStats = await apiService.getDashboardStats();
       
-      // Utiliser le DatabaseManager pour charger les données
-      const dbManager = new DatabaseManager();
-      const dashboardStats = dbManager.getDashboardStats();
+      // Load chart data
+      const charts = await apiService.getDashboardCharts('month');
+      
+      // Load recent activity
+      const activity = await apiService.getRecentActivity(10);
       
       setStats({
-        totalCandidates: dashboardStats.totalCandidates,
-        totalFormations: dashboardStats.totalFormations,
-        totalPayments: dashboardStats.totalRevenue,
-        totalCertificates: dashboardStats.issuedCertificates
+        totalCandidates: dashboardStats.totalCandidates || 0,
+        totalFormations: dashboardStats.totalFormations || 0,
+        totalPayments: dashboardStats.totalRevenue || 0,
+        totalCertificates: dashboardStats.issuedCertificates || 0
       });
+      
+      setChartData(charts);
+      setRecentActivity(activity);
     } catch (err) {
       console.error('Erreur lors du chargement du tableau de bord:', err);
-      setError('Erreur lors du chargement des données');
+      
+      // Handle rate limiting specifically
+      if (apiService.isRateLimitError(err)) {
+        const delay = apiService.getRetryAfterDelay(err);
+        setRetryAfter(delay / 1000); // Convert to seconds
+        setError('Trop de requêtes. Veuillez attendre avant de réessayer.');
+      } else {
+        setError('Erreur lors du chargement des données');
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRetry = () => {
+    if (retryAfter <= 0) {
+      loadDashboardData();
     }
   };
 
@@ -70,22 +95,57 @@ const Dashboard = () => {
     }
   };
 
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('fr-TN', {
+      style: 'currency',
+      currency: 'TND'
+    }).format(amount);
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  };
+
+  // Update retry countdown
+  useEffect(() => {
+    if (retryAfter > 0) {
+      const timer = setTimeout(() => {
+        setRetryAfter(prev => Math.max(0, prev - 1));
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [retryAfter]);
+
   if (error) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
         <div className="max-w-7xl mx-auto">
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-4">
-              Erreur
-            </h2>
-            <p className="text-red-700 dark:text-red-300 mb-4">{error}</p>
-            <button
-              onClick={loadDashboardData}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Réessayer
-            </button>
-          </div>
+          {/* Show rate limit handler if it's a rate limiting error */}
+          <RateLimitHandler 
+            error={{ status: apiService.isRateLimitError({ message: error }) ? 429 : 500 }}
+            onRetry={handleRetry}
+            retryAfter={retryAfter}
+          />
+          
+          {/* Show general error if not rate limiting */}
+          {!apiService.isRateLimitError({ message: error }) && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 mt-6">
+              <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-4">
+                Erreur
+              </h2>
+              <p className="text-red-700 dark:text-red-300 mb-4">{error}</p>
+              <button
+                onClick={loadDashboardData}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -149,7 +209,7 @@ const Dashboard = () => {
                   </div>
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Paiements</p>
-                    <p className="text-2xl font-semibold text-gray-900 dark:text-white">{stats.totalPayments}</p>
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-white">{formatCurrency(stats.totalPayments)}</p>
                   </div>
                 </div>
               </div>
@@ -158,7 +218,7 @@ const Dashboard = () => {
                 <div className="flex items-center">
                   <div className="p-3 rounded-full bg-purple-100 dark:bg-purple-900">
                     <svg className="w-6 h-6 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                     </svg>
                   </div>
                   <div className="ml-4">
@@ -230,7 +290,7 @@ const Dashboard = () => {
                   <div className="text-center">
                     <div className="mx-auto w-12 h-12 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                       <svg className="w-6 h-6 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
                       </svg>
                     </div>
                     <p className="text-sm font-medium text-purple-900 dark:text-purple-100">
@@ -246,15 +306,50 @@ const Dashboard = () => {
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                 Activité récente
               </h2>
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">Aucune activité</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Commencez par créer votre premier élément
-                </p>
-              </div>
+              {recentActivity && recentActivity.length > 0 ? (
+                <div className="space-y-4">
+                  {recentActivity.map((activity, index) => (
+                    <div key={index} className="flex items-center space-x-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div className="flex-shrink-0">
+                        {activity.type === 'candidate' ? (
+                          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                            <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
+                            <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {activity.type === 'candidate' 
+                            ? `Nouveau candidat: ${activity.data.firstName} ${activity.data.lastName}`
+                            : `Paiement reçu: ${formatCurrency(activity.data.amount)}`
+                          }
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {formatDate(activity.date)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                  <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">Aucune activité</h3>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Commencez par créer votre premier élément
+                  </p>
+                </div>
+              )}
             </div>
           </>
         )}

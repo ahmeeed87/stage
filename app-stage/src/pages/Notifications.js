@@ -10,107 +10,55 @@ import {
   BookOpen,
   X
 } from 'lucide-react';
-import DatabaseManager from '../utils/database';
+import { useAuth } from '../contexts/AuthContext';
 
 const Notifications = () => {
+  const { apiService } = useAuth();
   const [filter, setFilter] = useState('all');
   const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadNotifications();
   }, []);
 
-  const loadNotifications = () => {
-    const dbManager = new DatabaseManager();
-    
-    // Initialiser avec des données d'exemple si c'est la première fois
-    dbManager.initializeWithSampleData();
-    
-    let allNotifications = dbManager.getAllNotifications();
-
-    // Si pas de notifications, en générer quelques-unes basées sur les données
-    if (allNotifications.length === 0) {
-      const candidates = dbManager.getAllCandidates();
-      const formations = dbManager.getAllFormations();
+  const loadNotifications = async () => {
+    try {
+      setLoading(true);
+      setError(null);
       
-      allNotifications = [];
-      
-      // Notifications de paiement en retard
-      candidates.forEach(candidate => {
-        if (candidate.remainingAmount > 0) {
-          allNotifications.push({
-            id: allNotifications.length + 1,
-            type: "payment_reminder",
-            title: "Rappel de paiement",
-            message: `Le candidat ${candidate.firstName} ${candidate.lastName} a un retard de paiement de ${candidate.remainingAmount.toLocaleString()} TND`,
-            candidateId: candidate.id,
-            date: new Date().toISOString().split('T')[0],
-            status: "Non lu",
-            priority: "high"
-          });
-        }
-      });
-
-      // Notifications de début de formation
-      formations.forEach(formation => {
-        if (formation.status === 'Planifié' && formation.startDate) {
-          const startDate = new Date(formation.startDate);
-          const today = new Date();
-          const daysUntilStart = Math.ceil((startDate - today) / (1000 * 60 * 60 * 24));
-          
-          if (daysUntilStart <= 7 && daysUntilStart > 0) {
-            allNotifications.push({
-              id: allNotifications.length + 1,
-              type: "formation_start",
-              title: "Début de formation",
-              message: `La formation ${formation.title} commence dans ${daysUntilStart} jour(s)`,
-              formationId: formation.id,
-              date: new Date().toISOString().split('T')[0],
-              status: "Non lu",
-              priority: "medium"
-            });
-          }
-        }
-      });
-
-      // Notifications de bienvenue
-      if (allNotifications.length === 0) {
-        allNotifications.push({
-          id: 1,
-          type: "welcome",
-          title: "Bienvenue",
-          message: "Bienvenue dans votre centre de formation. Commencez par ajouter vos premiers candidats et formations.",
-          date: new Date().toISOString().split('T')[0],
-          status: "Non lu",
-          priority: "low"
-        });
-      }
-
-      // Sauvegarder les notifications générées via DatabaseManager
-      const dbManager = new DatabaseManager();
-      dbManager.saveNotifications(allNotifications);
-    }
-
-    setNotifications(allNotifications);
-  };
-
-  const markAsRead = (id) => {
-    const dbManager = new DatabaseManager();
-    const updated = dbManager.markNotificationAsRead(id);
-    
-    if (updated) {
-      setNotifications(dbManager.getAllNotifications());
+      // Charger les notifications depuis l'API
+      const notificationsData = await apiService.getNotifications();
+      setNotifications(notificationsData);
+    } catch (err) {
+      console.error('Erreur lors du chargement des notifications:', err);
+      setError('Erreur lors du chargement des notifications');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const markAllAsRead = () => {
-    const dbManager = new DatabaseManager();
-    notifications.forEach(notification => {
-      if (notification.status === 'Non lu') {
-        dbManager.markNotificationAsRead(notification.id);
-      }
-    });
-    setNotifications(dbManager.getAllNotifications());
+  const markAsRead = async (id) => {
+    try {
+      await apiService.markNotificationAsRead(id);
+      // Recharger les notifications
+      await loadNotifications();
+    } catch (err) {
+      console.error('Erreur lors du marquage comme lu:', err);
+      setError('Erreur lors du marquage comme lu');
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await apiService.markAllNotificationsAsRead();
+      // Recharger les notifications
+      await loadNotifications();
+    } catch (err) {
+      console.error('Erreur lors du marquage de toutes les notifications:', err);
+      setError('Erreur lors du marquage de toutes les notifications');
+    }
   };
 
   const getPriorityColor = (priority) => {
@@ -147,6 +95,27 @@ const Notifications = () => {
     : notifications.filter(n => n.type === filter);
 
   const unreadCount = notifications.filter(n => n.status === 'Non lu').length;
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-red-800 dark:text-red-200 mb-4">
+              Erreur
+            </h2>
+            <p className="text-red-700 dark:text-red-300 mb-4">{error}</p>
+            <button
+              onClick={loadNotifications}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Réessayer
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
@@ -227,29 +196,36 @@ const Notifications = () => {
             </div>
           </div>
 
-          {/* Liste des notifications */}
-          <div className="space-y-4">
-            {filteredNotifications.length === 0 ? (
-              <div className="text-center py-8">
-                <Bell className="mx-auto h-12 w-12 text-gray-400" />
-                <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">Aucune notification</h3>
-                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  {filter === 'all' ? 'Vous n\'avez pas encore de notifications' : 'Aucune notification pour ce filtre'}
-                </p>
-              </div>
-            ) : (
-              filteredNotifications.map((notification) => (
-                <NotificationCard
-                  key={notification.id}
-                  notification={notification}
-                  onMarkAsRead={markAsRead}
-                  getPriorityColor={getPriorityColor}
-                  getPriorityIcon={getPriorityIcon}
-                  getTypeIcon={getTypeIcon}
-                />
-              ))
-            )}
-          </div>
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <p className="mt-2 text-gray-600 dark:text-gray-400">Chargement des notifications...</p>
+            </div>
+          ) : (
+            /* Liste des notifications */
+            <div className="space-y-4">
+              {filteredNotifications.length === 0 ? (
+                <div className="text-center py-8">
+                  <Bell className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">Aucune notification</h3>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {filter === 'all' ? 'Vous n\'avez pas encore de notifications' : 'Aucune notification pour ce filtre'}
+                  </p>
+                </div>
+              ) : (
+                filteredNotifications.map((notification) => (
+                  <NotificationCard
+                    key={notification.id}
+                    notification={notification}
+                    onMarkAsRead={markAsRead}
+                    getPriorityColor={getPriorityColor}
+                    getPriorityIcon={getPriorityIcon}
+                    getTypeIcon={getTypeIcon}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
