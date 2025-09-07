@@ -5,12 +5,13 @@ import { Eye, EyeOff, Lock, Mail, User, Building } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError } = useAuth();
+  const { login, register, isLoading, error, clearError } = useAuth();
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     username: '',
     password: '',
+    email: '',
     firstName: '',
     lastName: '',
     centerName: '',
@@ -41,9 +42,21 @@ const Login = () => {
         });
         navigate('/');
       } else {
-        // Registration logic would go here
-        // For now, just show login mode
-        setIsLoginMode(true);
+        // Registration logic
+        if (formData.password !== formData.confirmPassword) {
+          setError('Les mots de passe ne correspondent pas');
+          return;
+        }
+        
+        await register({
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          centerName: formData.centerName
+        });
+        navigate('/');
       }
     } catch (err) {
       // Error is already handled by the auth context
@@ -56,6 +69,7 @@ const Login = () => {
     setFormData({
       username: '',
       password: '',
+      email: '',
       firstName: '',
       lastName: '',
       centerName: '',
@@ -146,6 +160,25 @@ const Login = () => {
                       onChange={handleInputChange}
                       className="pl-10 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                       placeholder="Nom du centre de formation"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      required={!isLoginMode}
+                      value={formData.email}
+                      onChange={handleInputChange}
+                      className="pl-10 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                      placeholder="votre@email.com"
                     />
                   </div>
                 </div>

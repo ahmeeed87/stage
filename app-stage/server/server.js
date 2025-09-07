@@ -48,25 +48,126 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Database initialization
+// Database initialization with enhanced monitoring
 const db = new DatabaseManager();
+
+// Set up database event monitoring
+db.on('connected', () => {
+  console.log('🔗 Database connected');
+});
+
+db.on('initialized', () => {
+  console.log('✅ Database initialized successfully');
+});
+
+db.on('error', (error) => {
+  console.error('❌ Database error:', error);
+});
+
+db.on('queryError', (data) => {
+  console.error('❌ Query error:', data.error.message, 'SQL:', data.sql);
+});
+
+db.on('queryTimeout', (data) => {
+  console.error('⏰ Query timeout:', data.sql, 'Timeout:', data.timeout);
+});
+
+db.on('closing', () => {
+  console.log('🔄 Database closing...');
+});
+
+db.on('closed', () => {
+  console.log('✅ Database closed successfully');
+});
 
 // Wait for database initialization
 db.initDatabase().then(() => {
   console.log('✅ Database initialized successfully');
+  
+  // Log performance metrics every 5 minutes
+  setInterval(() => {
+    db.logPerformanceMetrics();
+  }, 5 * 60 * 1000);
+  
 }).catch((error) => {
   console.error('❌ Database initialization failed:', error);
   process.exit(1);
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+// Enhanced health check endpoint with detailed diagnostics
+app.get('/api/health', async (req, res) => {
+  try {
+    const detailedHealth = await db.getDetailedHealthCheck();
+    const lockInfo = await db.checkForLocks();
+    const debugInfo = db.getDebugInfo();
+    
+    res.json({
+      status: detailedHealth.healthy ? 'OK' : 'ERROR',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      database: detailedHealth,
+      locks: lockInfo,
+      debug: debugInfo,
+      memory: {
+        used: Math.round(debugInfo.memoryUsage.heapUsed / 1024 / 1024) + ' MB',
+        total: Math.round(debugInfo.memoryUsage.heapTotal / 1024 / 1024) + ' MB',
+        external: Math.round(debugInfo.memoryUsage.external / 1024 / 1024) + ' MB',
+        rss: Math.round(debugInfo.memoryUsage.rss / 1024 / 1024) + ' MB'
+      }
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      error: error.message,
+      debug: db.getDebugInfo()
+    });
+  }
+});
+
+// Database performance monitoring endpoint
+app.get('/api/debug/database', async (req, res) => {
+  try {
+    const debugInfo = db.getDebugInfo();
+    const detailedHealth = await db.getDetailedHealthCheck();
+    const lockInfo = await db.checkForLocks();
+    
+    res.json({
+      debug: debugInfo,
+      health: detailedHealth,
+      locks: lockInfo,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Debug endpoint error:', error);
+    res.status(500).json({
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Database performance metrics endpoint
+app.get('/api/debug/metrics', (req, res) => {
+  try {
+    const stats = db.getConnectionStats();
+    const debugInfo = db.getDebugInfo();
+    
+    res.json({
+      connectionStats: stats,
+      memoryUsage: debugInfo.memoryUsage,
+      uptime: debugInfo.uptime,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Metrics endpoint error:', error);
+    res.status(500).json({
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // API version endpoint
@@ -79,7 +180,7 @@ app.get('/api/version', (req, res) => {
 });
 
 // Authentication middleware
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -88,80 +189,276 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    // In a real app, you would verify JWT tokens here
-    // For demo purposes, we'll use a simple token check
-    if (token === 'demo-token') {
-      req.user = { id: 1, email: 'demo@example.com', role: 'admin' };
-      next();
+    // Extract user ID from token format: token-{userId}-{timestamp}
+    if (token.startsWith('token-')) {
+      const userId = token.split('-')[1];
+      const user = await db.getUserById(parseInt(userId));
+      
+      if (user && user.isActive) {
+        req.user = {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role
+        };
+        next();
+      } else {
+        return res.status(403).json({ message: 'Invalid or inactive user' });
+      }
     } else {
-      return res.status(403).json({ message: 'Invalid token' });
+      return res.status(403).json({ message: 'Invalid token format' });
     }
   } catch (error) {
+    console.error('Authentication error:', error);
     return res.status(403).json({ message: 'Invalid token' });
   }
 };
 
 // Authentication routes
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  
-  // Demo authentication - in real app, verify against database
-  if (username === 'admin' && password === 'admin') {
-    res.json({
-      token: 'demo-token',
-      refreshToken: 'demo-refresh-token',
-      user: {
-        id: 1,
-        username: 'admin',
-        firstName: 'Admin',
-        lastName: 'User',
-        centerName: 'Demo Center',
-        role: 'admin'
-      }
-    });
-  } else {
-    res.status(401).json({ message: 'Invalid credentials' });
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ message: 'Username and password are required' });
+    }
+    
+    // Authenticate user against database
+    const user = await db.authenticateUser(username, password);
+    
+    if (user) {
+      // Generate JWT token (for now using simple token)
+      const token = `token-${user.id}-${Date.now()}`;
+      
+      res.json({
+        token: token,
+        refreshToken: `refresh-${user.id}-${Date.now()}`,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          centerName: user.centerName,
+          role: user.role
+        }
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid credentials' });
+    }
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Login failed' });
   }
 });
 
-app.post('/api/auth/register', (req, res) => {
-  const { email, password, firstName, lastName, centerName } = req.body;
-  
-  // Demo registration - in real app, save to database
-  res.json({
-    token: 'demo-token',
-    refreshToken: 'demo-refresh-token',
-    user: {
-      id: 1,
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, email, password, firstName, lastName, centerName } = req.body;
+    
+    // Validate required fields
+    if (!username || !email || !password || !firstName || !lastName) {
+      return res.status(400).json({ 
+        message: 'Username, email, password, firstName, and lastName are required' 
+      });
+    }
+    
+    // Check if username already exists
+    const existingUser = await db.getUserByUsername(username);
+    if (existingUser) {
+      return res.status(409).json({ message: 'Username already exists' });
+    }
+    
+    // Check if email already exists
+    const existingEmail = await db.getUserByEmail(email);
+    if (existingEmail) {
+      return res.status(409).json({ message: 'Email already exists' });
+    }
+    
+    // Create new user
+    const userData = {
+      username,
       email,
+      password,
       firstName,
       lastName,
-      centerName,
-      role: 'admin'
-    }
-  });
+      centerName: centerName || null,
+      role: 'user' // Default role for new users
+    };
+    
+    const newUser = await db.createUser(userData);
+    
+    // Generate token for immediate login
+    const token = `token-${newUser.id}-${Date.now()}`;
+    
+    res.status(201).json({
+      token: token,
+      refreshToken: `refresh-${newUser.id}-${Date.now()}`,
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        centerName: newUser.centerName,
+        role: newUser.role
+      }
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Registration failed' });
+  }
 });
 
 app.post('/api/auth/logout', authenticateToken, (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
-app.get('/api/auth/profile', authenticateToken, (req, res) => {
-  res.json({
-    id: 1,
-    email: 'admin@example.com',
-    firstName: 'Admin',
-    lastName: 'User',
-    centerName: 'Demo Center',
-    role: 'admin'
-  });
+app.get('/api/auth/profile', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserById(req.user.id);
+    
+    if (user) {
+      res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        centerName: user.centerName,
+        role: user.role
+      });
+    } else {
+      res.status(404).json({ message: 'User not found' });
+    }
+  } catch (error) {
+    console.error('Profile error:', error);
+    res.status(500).json({ message: 'Error fetching profile' });
+  }
+});
+
+// User management endpoints (admin only)
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const users = await db.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Error fetching users' });
+  }
+});
+
+app.put('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const userId = parseInt(req.params.id);
+    const updates = req.body;
+    
+    const updatedUser = await db.updateUser(userId, updates);
+    
+    if (updatedUser) {
+      res.json(updatedUser);
+    } else {
+      res.status(404).json({ message: 'User not found' });
+    }
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ message: 'Error updating user' });
+  }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    const userId = parseInt(req.params.id);
+    
+    // Prevent admin from deleting themselves
+    if (userId === req.user.id) {
+      return res.status(400).json({ message: 'Cannot delete your own account' });
+    }
+    
+    const success = await db.deleteUser(userId);
+    
+    if (success) {
+      res.json({ message: 'User deleted successfully' });
+    } else {
+      res.status(404).json({ message: 'User not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    res.status(500).json({ message: 'Error deleting user' });
+  }
 });
 
 // Candidates API
 app.get('/api/candidates', authenticateToken, async (req, res) => {
   try {
-    const candidates = await db.getAllCandidates();
-    res.json(candidates);
+    const limit = parseInt(req.query.limit) || 50; // Default limit to prevent memory issues
+    const offset = parseInt(req.query.offset) || 0;
+    const search = req.query.search || '';
+    const includePagination = req.query.includePagination === 'true';
+    
+    let sql = 'SELECT * FROM candidates';
+    let params = [];
+    let conditions = [];
+    
+    // Filter by user's center
+    if (req.user.centerName) {
+      conditions.push('centerName = ?');
+      params.push(req.user.centerName);
+    }
+    
+    if (search) {
+      conditions.push('(LOWER(firstName) LIKE ? OR LOWER(lastName) LIKE ? OR LOWER(email) LIKE ?)');
+      const searchTerm = `%${search.toLowerCase()}%`;
+      params.push(searchTerm, searchTerm, searchTerm);
+    }
+    
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    sql += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+    
+    const candidates = await db.getAll(sql, params);
+    
+    // Return simple array for backward compatibility unless pagination is explicitly requested
+    if (!includePagination) {
+      return res.json(candidates);
+    }
+    
+    // Get total count for pagination
+    let countSql = 'SELECT COUNT(*) as total FROM candidates';
+    let countParams = [];
+    if (conditions.length > 0) {
+      countSql += ' WHERE ' + conditions.join(' AND ');
+      countParams = params.slice(0, -2); // Remove limit and offset
+    }
+    const totalResult = await db.getRow(countSql, countParams);
+    
+    res.json({
+      candidates,
+      pagination: {
+        total: totalResult.total,
+        limit,
+        offset,
+        hasMore: offset + limit < totalResult.total
+      }
+    });
   } catch (error) {
     console.error('Error fetching candidates:', error);
     res.status(500).json({ message: 'Error fetching candidates' });
@@ -184,7 +481,12 @@ app.get('/api/candidates/:id', authenticateToken, async (req, res) => {
 
 app.post('/api/candidates', authenticateToken, async (req, res) => {
   try {
-    const newCandidate = await db.createCandidate(req.body);
+    // Add the user's center name to the candidate data
+    const candidateData = {
+      ...req.body,
+      centerName: req.user.centerName
+    };
+    const newCandidate = await db.createCandidate(candidateData);
     res.status(201).json(newCandidate);
   } catch (error) {
     console.error('Error creating candidate:', error);
@@ -223,13 +525,25 @@ app.delete('/api/candidates/:id', authenticateToken, async (req, res) => {
 app.get('/api/candidates/search', authenticateToken, async (req, res) => {
   try {
     const query = req.query.q;
-    const candidates = await db.getAllCandidates();
-    const filtered = candidates.filter(candidate => 
-      candidate.firstName.toLowerCase().includes(query.toLowerCase()) ||
-      candidate.lastName.toLowerCase().includes(query.toLowerCase()) ||
-      candidate.email.toLowerCase().includes(query.toLowerCase())
-    );
-    res.json(filtered);
+    const limit = parseInt(req.query.limit) || 50; // Limit results to prevent memory issues
+    const offset = parseInt(req.query.offset) || 0;
+    
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({ message: 'Search query must be at least 2 characters' });
+    }
+    
+    // Use database-level search instead of loading all records into memory
+    const searchTerm = `%${query.toLowerCase()}%`;
+    const candidates = await db.getAll(`
+      SELECT * FROM candidates 
+      WHERE LOWER(firstName) LIKE ? 
+         OR LOWER(lastName) LIKE ? 
+         OR LOWER(email) LIKE ?
+      ORDER BY createdAt DESC 
+      LIMIT ? OFFSET ?
+    `, [searchTerm, searchTerm, searchTerm, limit, offset]);
+    
+    res.json(candidates);
   } catch (error) {
     console.error('Error searching candidates:', error);
     res.status(500).json({ message: 'Error searching candidates' });
@@ -239,7 +553,7 @@ app.get('/api/candidates/search', authenticateToken, async (req, res) => {
 // Formations API
 app.get('/api/formations', authenticateToken, async (req, res) => {
   try {
-    const formations = await db.getAllFormations();
+    const formations = await db.getAllFormations(req.user.centerName);
     res.json(formations);
   } catch (error) {
     console.error('Error fetching formations:', error);
@@ -263,7 +577,12 @@ app.get('/api/formations/:id', authenticateToken, async (req, res) => {
 
 app.post('/api/formations', authenticateToken, async (req, res) => {
   try {
-    const newFormation = await db.createFormation(req.body);
+    // Add the user's center name to the formation data
+    const formationData = {
+      ...req.body,
+      centerName: req.user.centerName
+    };
+    const newFormation = await db.createFormation(formationData);
     res.status(201).json(newFormation);
   } catch (error) {
     console.error('Error creating formation:', error);
@@ -299,24 +618,36 @@ app.delete('/api/formations/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.get('/api/formations/:id/stats', authenticateToken, (req, res) => {
+app.get('/api/formations/:id/stats', authenticateToken, async (req, res) => {
   try {
     const formationId = parseInt(req.params.id);
-    const candidates = db.getAllCandidates();
-    const payments = db.getAllPayments();
     
-    const formationCandidates = candidates.filter(c => c.formationId === formationId);
-    const formationPayments = payments.filter(p => p.formationId === formationId);
+    // Use database-level aggregation instead of loading all records into memory
+    const candidateStats = await db.getRow(`
+      SELECT COUNT(*) as totalCandidates 
+      FROM candidates 
+      WHERE formationId = ?
+    `, [formationId]);
+    
+    const paymentStats = await db.getRow(`
+      SELECT 
+        COUNT(*) as totalPayments,
+        COALESCE(SUM(amount), 0) as totalRevenue,
+        COALESCE(AVG(amount), 0) as averagePayment
+      FROM payments 
+      WHERE formationId = ?
+    `, [formationId]);
     
     const stats = {
-      totalCandidates: formationCandidates.length,
-      totalRevenue: formationPayments.reduce((sum, p) => sum + p.amount, 0),
-      averagePayment: formationPayments.length > 0 ? 
-        formationPayments.reduce((sum, p) => sum + p.amount, 0) / formationPayments.length : 0
+      totalCandidates: candidateStats.totalCandidates,
+      totalRevenue: paymentStats.totalRevenue,
+      averagePayment: paymentStats.averagePayment,
+      totalPayments: paymentStats.totalPayments
     };
     
     res.json(stats);
   } catch (error) {
+    console.error('Error fetching formation stats:', error);
     res.status(500).json({ message: 'Error fetching formation stats' });
   }
 });
@@ -340,8 +671,58 @@ app.get('/api/formations/:id/capacity', authenticateToken, (req, res) => {
 // Payments API
 app.get('/api/payments', authenticateToken, async (req, res) => {
   try {
-    const payments = await db.getAllPayments();
-    res.json(payments);
+    const limit = parseInt(req.query.limit) || 50; // Default limit to prevent memory issues
+    const offset = parseInt(req.query.offset) || 0;
+    const candidateId = req.query.candidateId;
+    const formationId = req.query.formationId;
+    const includePagination = req.query.includePagination === 'true';
+    
+    let sql = 'SELECT * FROM payments';
+    let params = [];
+    let conditions = [];
+    
+    if (candidateId) {
+      conditions.push('candidateId = ?');
+      params.push(candidateId);
+    }
+    
+    if (formationId) {
+      conditions.push('formationId = ?');
+      params.push(formationId);
+    }
+    
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    sql += ' ORDER BY createdAt DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+    
+    const payments = await db.getAll(sql, params);
+    
+    // Return simple array for backward compatibility unless pagination is explicitly requested
+    if (!includePagination) {
+      return res.json(payments);
+    }
+    
+    // Get total count for pagination
+    let countSql = 'SELECT COUNT(*) as total FROM payments';
+    let countParams = [];
+    if (conditions.length > 0) {
+      countSql += ' WHERE ' + conditions.join(' AND ');
+      countParams = params.slice(0, -2); // Remove limit and offset
+    }
+    const totalResult = await db.getRow(countSql, countParams);
+    
+    res.json({
+      payments,
+      pagination: {
+        total: totalResult.total,
+        limit,
+        offset,
+        hasMore: offset + limit < totalResult.total
+      }
+    });
   } catch (error) {
     console.error('Error fetching payments:', error);
     res.status(500).json({ message: 'Error fetching payments' });
@@ -350,8 +731,8 @@ app.get('/api/payments', authenticateToken, async (req, res) => {
 
 app.get('/api/payments/:id', authenticateToken, async (req, res) => {
   try {
-    const payments = await db.getAllPayments();
-    const payment = payments.find(p => p.id === parseInt(req.params.id));
+    const paymentId = parseInt(req.params.id);
+    const payment = await db.getRow('SELECT * FROM payments WHERE id = ?', [paymentId]);
     if (payment) {
       res.json(payment);
     } else {
@@ -745,24 +1126,59 @@ app.get('/api/dashboard/charts', authenticateToken, (req, res) => {
 app.get('/api/dashboard/activity', authenticateToken, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const candidates = await db.getAllCandidates();
-    const payments = await db.getAllPayments();
     
-    const activities = [
-      ...candidates.map(c => ({
-        type: 'candidate',
-        action: 'registered',
-        data: c,
-        date: c.registrationDate
-      })),
-      ...payments.map(p => ({
-        type: 'payment',
-        action: 'received',
-        data: p,
-        date: p.paymentDate
-      }))
-    ].sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, limit);
+    // Get recent candidates
+    const recentCandidates = await db.getAll(`
+      SELECT 
+        'candidate' as type,
+        'registered' as action,
+        id,
+        firstName,
+        lastName,
+        email,
+        registrationDate as date,
+        createdAt,
+        NULL as amount
+      FROM candidates
+      WHERE createdAt >= datetime('now', '-30 days')
+      ORDER BY createdAt DESC
+      LIMIT ?
+    `, [Math.ceil(limit / 2)]);
+    
+    // Get recent payments
+    const recentPayments = await db.getAll(`
+      SELECT 
+        'payment' as type,
+        'received' as action,
+        id,
+        NULL as firstName,
+        NULL as lastName,
+        NULL as email,
+        paymentDate as date,
+        createdAt,
+        amount
+      FROM payments
+      WHERE createdAt >= datetime('now', '-30 days')
+      ORDER BY createdAt DESC
+      LIMIT ?
+    `, [Math.ceil(limit / 2)]);
+    
+    // Combine and sort activities
+    const activities = [...recentCandidates, ...recentPayments]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, limit)
+      .map(activity => ({
+        type: activity.type,
+        action: activity.action,
+        data: {
+          id: activity.id,
+          firstName: activity.firstName,
+          lastName: activity.lastName,
+          email: activity.email,
+          amount: activity.amount
+        },
+        date: activity.date
+      }));
     
     res.json(activities);
   } catch (error) {
@@ -991,9 +1407,67 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Endpoint not found' });
 });
 
+// Graceful shutdown handling
+process.on('SIGINT', async () => {
+  console.log('\n🛑 Received SIGINT. Graceful shutdown...');
+  try {
+    if (db) {
+      await db.close();
+    }
+    console.log('✅ Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🛑 Received SIGTERM. Graceful shutdown...');
+  try {
+    if (db) {
+      await db.close();
+    }
+    console.log('✅ Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', async (err) => {
+  console.error('Uncaught Exception:', err);
+  try {
+    if (db) {
+      await db.close();
+    }
+  } catch (closeError) {
+    console.error('Error closing database during exception:', closeError);
+  }
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  try {
+    if (db) {
+      await db.close();
+    }
+  } catch (closeError) {
+    console.error('Error closing database during rejection:', closeError);
+  }
+  process.exit(1);
+});
+
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 API available at http://localhost:${PORT}/api`);
   console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
 });
+
+// Set server timeout to prevent hanging connections
+server.timeout = 30000; // 30 seconds
