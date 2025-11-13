@@ -447,17 +447,6 @@ class ApiService {
     return this.makeRequest(`/dashboard/activity?limit=${limit}`);
   }
 
-  // Reports API
-  async generateReport(type, params = {}) {
-    const queryString = new URLSearchParams(params).toString();
-    return this.makeRequest(`/reports/${type}${queryString ? `?${queryString}` : ''}`);
-  }
-
-  async exportReport(type, format = 'pdf', params = {}) {
-    const queryString = new URLSearchParams({ ...params, format }).toString();
-    return this.makeRequest(`/reports/${type}/export?${queryString}`);
-  }
-
   // Settings API
   async getSettings() {
     return this.makeRequest('/settings');
@@ -479,57 +468,6 @@ class ApiService {
       method: 'PUT',
       body: JSON.stringify({ value }),
     });
-  }
-
-  // File upload API
-  async uploadFile(file, type = 'document') {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', type);
-
-    return this.makeRequest('/upload', {
-      method: 'POST',
-      headers: {
-        // Remove Content-Type to let browser set it with boundary
-        'Authorization': this.getHeaders()['Authorization'],
-      },
-      body: formData,
-    });
-  }
-
-  async deleteFile(fileId) {
-    return this.makeRequest(`/upload/${fileId}`, {
-      method: 'DELETE',
-    });
-  }
-
-  // Data sync API
-  async syncData() {
-    return this.makeRequest('/sync');
-  }
-
-  async getSyncStatus() {
-    return this.makeRequest('/sync/status');
-  }
-
-  async backupData() {
-    return this.makeRequest('/backup');
-  }
-
-  async restoreData(backupId) {
-    return this.makeRequest(`/backup/${backupId}/restore`, {
-      method: 'POST',
-    });
-  }
-
-  // Health check
-  async healthCheck() {
-    return this.makeRequest('/health');
-  }
-
-  // Get API version
-  async getApiVersion() {
-    return this.makeRequest('/version');
   }
 
   // Utility method to check if error is rate limiting

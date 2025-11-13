@@ -1,0 +1,108 @@
+Error updating candidate: Error: SQLITE_ERROR: no such column: cin
+--> in Database#run('UPDATE candidates SET firstName = ?, lastName = ?, email = ?, phone = ?, registrationDate = ?, formationId = ?, centerName = ?, status = ?, createdAt = ?, cin = ?, birthDate = ? WHERE id = ?', [
+  'ibtihel',
+  'toujani',
+  'ibtihel@gmail.com',
+  '12121212',
+  '2025-11-13',
+  1,
+  null,
+  'Actif',
+  '2025-11-13 19:03:28',
+  '12121212',
+  '2006-04-20',
+  1
+], [Function (anonymous)])
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:44:15
+    at new Promise (<anonymous>)
+    at DatabaseManager.runQuery (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:43:12)
+    at DatabaseManager.updateCandidate (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:126:16)
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:499:39
+    at Layer.handle [as handle_request] (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\route.js:149:13)
+    at authenticateToken (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:204:9) {
+  errno: 1,
+  code: 'SQLITE_ERROR',
+  __augmented: true
+}
+Error updating candidate: Error: SQLITE_ERROR: no such column: cin
+--> in Database#run('UPDATE candidates SET firstName = ?, lastName = ?, email = ?, phone = ?, registrationDate = ?, formationId = ?, centerName = ?, status = ?, createdAt = ?, cin = ?, birthDate = ? WHERE id = ?', [
+  'ibtihel',
+  'toujani',
+  'ibtihel@gmail.com',
+  '12121212',
+  '2025-11-13',
+  1,
+  null,
+  'Actif',
+  '2025-11-13 19:03:28',
+  '12121212',
+  '2006-04-20',
+  1
+], [Function (anonymous)])
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:44:15
+    at new Promise (<anonymous>)
+    at DatabaseManager.runQuery (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:43:12)
+    at DatabaseManager.updateCandidate (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:126:16)
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:499:39
+    at Layer.handle [as handle_request] (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\route.js:149:13)
+    at authenticateToken (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:204:9) {
+  errno: 1,
+  code: 'SQLITE_ERROR',
+  __augmented: true
+}
+Error updating candidate: Error: SQLITE_ERROR: no such column: cin
+--> in Database#run('UPDATE candidates SET firstName = ?, lastName = ?, email = ?, phone = ?, registrationDate = ?, formationId = ?, centerName = ?, status = ?, createdAt = ?, cin = ?, birthDate = ? WHERE id = ?', [
+  'ibtihel',
+  'toujani',
+  'ibtihel@gmail.com',
+  '12121212',
+  '2025-11-13',
+  1,
+  null,
+  'Actif',
+  '2025-11-13 19:03:28',
+  '12121212',
+  '2006-04-20',
+  1
+], [Function (anonymous)])
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:44:15
+    at new Promise (<anonymous>)
+    at DatabaseManager.runQuery (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:43:12)
+    at DatabaseManager.updateCandidate (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:126:16)
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:499:39
+    at Layer.handle [as handle_request] (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\route.js:149:13)
+    at authenticateToken (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:204:9) {
+  errno: 1,
+  code: 'SQLITE_ERROR',
+  __augmented: true
+}
+Error updating candidate: Error: SQLITE_ERROR: no such column: cin
+--> in Database#run('UPDATE candidates SET firstName = ?, lastName = ?, email = ?, phone = ?, registrationDate = ?, formationId = ?, centerName = ?, status = ?, createdAt = ?, cin = ?, birthDate = ? WHERE id = ?', [
+  'ibtihel',
+  'toujani',
+  'ibtihel@gmail.com',
+  '12121212',
+  '2025-11-13',
+  1,
+  null,
+  'Actif',
+  '2025-11-13 19:03:28',
+  '12121212',
+  '2006-04-20',
+  1
+], [Function (anonymous)])
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:44:15
+    at new Promise (<anonymous>)
+    at DatabaseManager.runQuery (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:43:12)
+    at DatabaseManager.updateCandidate (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\database.js:126:16)
+    at C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:499:39
+    at Layer.handle [as handle_request] (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\node_modules\express\lib\router\route.js:149:13)
+    at authenticateToken (C:\Users\DELL\Desktop\ahmed\stage\app-stage\server\server.js:204:9) {
+  errno: 1,
+  code: 'SQLITE_ERROR',
+  __augmented: true
+}

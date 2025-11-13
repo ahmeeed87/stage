@@ -1,390 +1,261 @@
-class DatabaseManager {
+﻿const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
+const EventEmitter = require("events");
+class DatabaseManager extends EventEmitter {
   constructor() {
-    this.storageKey = 'formation-center-data';
-    this.initDatabase();
-  }
-
-  initDatabase() {
-    // Only initialize if no data exists
-    const existingData = this.getData();
-    if (!existingData) {
-      const initialData = {
-        candidates: [],
-        payments: [],
-        formations: [],
-        certificates: [],
-        notifications: [],
-        settings: this.getDefaultSettings()
-      };
-      this.saveData(initialData);
-    }
-  }
-
-  // Get all data from storage
-  getData() {
-    try {
-      // In a real server, this would be a database connection
-      // For demo purposes, we'll use a simple in-memory store
-      if (!this._data) {
-        this._data = {
-          candidates: [],
-          payments: [],
-          formations: [],
-          certificates: [],
-          notifications: [],
-          settings: this.getDefaultSettings()
-        };
+    super();
+    this.dbPath = path.resolve(__dirname, "database.sqlite");
+    this.db = new sqlite3.Database(this.dbPath, err => {
+      if (err) {
+        console.error("DB error:", err);
+        this.emit("error", err);
+      } else {
+        console.log("DB connected");
+        this.emit("connected");
+        this.initDatabase();
       }
-      return this._data;
-    } catch (error) {
-      console.error('Error getting data:', error);
-      return null;
-    }
+    });
   }
-
-  // Save all data to storage
-  saveData(data) {
+  async initDatabase() {
     try {
-      this._data = data;
-      return true;
+      await this.createTables();
+      // Ensure required columns exist (migrations for existing DB)
+      try {
+        const userCols = await this.getAll("PRAGMA table_info('users')");
+        const hasIsActive = userCols.some((c) => c && c.name === 'isActive');
+        if (!hasIsActive) {
+          await this.runQuery("ALTER TABLE users ADD COLUMN isActive INTEGER DEFAULT 1");
+          console.log('DB migration: added isActive column to users');
+        }
+      } catch (migErr) {
+        // Non-fatal migration error, log and continue
+        console.warn('DB migration check failed:', migErr && migErr.message ? migErr.message : migErr);
+      }
+      console.log("DB initialized");
+      this.emit("initialized");
     } catch (error) {
-      console.error('Error saving data:', error);
-      return false;
+      console.error("Init error:", error);
+      this.emit("error", error);
     }
   }
-
-  // Force complete data reset - removes all existing data
-  forceResetAllData() {
-    this._data = null;
-    this.initDatabase();
-    return true;
-  }
-
-  // COMPLETE DATA CLEARING - removes all data including sample data
-  clearAllDataCompletely() {
-    this._data = {
-      candidates: [],
-      payments: [],
-      formations: [],
-      certificates: [],
-      notifications: [],
-      settings: this.getDefaultSettings()
-    };
-    this.saveData(this._data);
-    return true;
-  }
-
-  // Get default settings only (no sample data)
-  getDefaultSettings() {
-    return {
-      centerName: "Forci Plus",
-      centerAddress: "1 er étage, Imm Ayadi, A coté d'impasse Sidi Assem Jendouba 8100 8100 Jendouba, Tunisia",
-      centerPhone: "+216 78 123 456",
-      centerEmail: "contact@gmail.tn",
-      paymentReminderDays: 7,
-      autoGenerateCertificates: true,
-      theme: "light",
-      language: "fr"
-    };
-  }
-
-  // Méthodes CRUD pour les candidats
-  getAllCandidates() {
-    const data = this.getData();
-    return data.candidates || [];
-  }
-
-  getCandidateById(id) {
-    const candidates = this.getAllCandidates();
-    return candidates.find(candidate => candidate.id === id);
-  }
-
-  createCandidate(candidate) {
-    const data = this.getData();
-    const candidates = data.candidates || [];
-    const newCandidate = { 
-      ...candidate, 
-      id: Date.now(),
-      registrationDate: new Date().toISOString().split('T')[0],
-      status: "Actif",
-      totalPaid: 0,
-      remainingAmount: 0
-    };
-    candidates.push(newCandidate);
-    data.candidates = candidates;
-    this.saveData(data);
-    return newCandidate;
-  }
-
-  updateCandidate(id, updates) {
-    const data = this.getData();
-    const candidates = data.candidates || [];
-    const index = candidates.findIndex(candidate => candidate.id === id);
-    if (index !== -1) {
-      candidates[index] = { ...candidates[index], ...updates };
-      data.candidates = candidates;
-      this.saveData(data);
-      return candidates[index];
+  async createTables() {
+    const tables = [
+  "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, email TEXT UNIQUE, password TEXT, firstName TEXT, lastName TEXT, centerName TEXT, role TEXT DEFAULT \"user\", isActive INTEGER DEFAULT 1, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS candidates (id INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT, email TEXT, phone TEXT, registrationDate TEXT, formationId INTEGER, centerName TEXT, status TEXT DEFAULT \"Actif\", createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS formations (id INTEGER PRIMARY KEY, title TEXT, description TEXT, startDate TEXT, endDate TEXT, price REAL, maxParticipants INTEGER, centerName TEXT, status TEXT DEFAULT \"Planifié\", createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS payments (id INTEGER PRIMARY KEY, candidateId INTEGER, formationId INTEGER, amount REAL, paymentDate TEXT, paymentMethod TEXT, receiptNumber TEXT UNIQUE, status TEXT DEFAULT \"Payé\", createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS certificates (id INTEGER PRIMARY KEY, candidateId INTEGER, formationId INTEGER, certificateNumber TEXT UNIQUE, issueDate TEXT, status TEXT DEFAULT \"Généré\", createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY, title TEXT, message TEXT, status TEXT DEFAULT \"Non lu\", createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    ];
+    for (const sql of tables) {
+      await this.runQuery(sql);
     }
+  }
+  async runQuery(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.run(sql, params, function(err) {
+        if (err) reject(err);
+        else resolve({ lastID: this.lastID, changes: this.changes });
+      });
+    });
+  }
+  async getRow(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+  }
+  async getAll(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      });
+    });
+  }
+  async getUserById(id) { return this.getRow("SELECT * FROM users WHERE id = ?", [id]); }
+  async getUserByUsername(username) { return this.getRow("SELECT * FROM users WHERE username = ?", [username]); }
+  async getUserByEmail(email) { return this.getRow("SELECT * FROM users WHERE email = ?", [email]); }
+  async getAllUsers() { return this.getAll("SELECT * FROM users ORDER BY createdAt DESC"); }
+  async authenticateUser(username, password) {
+    const user = await this.getUserByUsername(username);
+    if (!user) return null;
+    if (password === user.password) return user;
     return null;
   }
-
-  deleteCandidate(id) {
-    const data = this.getData();
-    const candidates = data.candidates || [];
-    const filteredCandidates = candidates.filter(candidate => candidate.id !== id);
-    data.candidates = filteredCandidates;
-    this.saveData(data);
+  async createUser(userData) {
+    const result = await this.runQuery(
+      "INSERT INTO users (username, email, password, firstName, lastName, centerName, role, isActive) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        userData.username,
+        userData.email,
+        userData.password,
+        userData.firstName || "",
+        userData.lastName || "",
+        userData.centerName || null,
+        userData.role || "user",
+        userData.isActive === undefined ? 1 : (userData.isActive ? 1 : 0)
+      ]
+    );
+    return this.getUserById(result.lastID);
+  }
+  async updateUser(id, updates) {
+    const fields = [];
+    const values = [];
+    Object.entries(updates).forEach(([key, value]) => {
+      if (key !== "id" && value !== undefined) {
+        fields.push(key + " = ?");
+        values.push(value);
+      }
+    });
+    if (fields.length === 0) return null;
+    values.push(id);
+    await this.runQuery("UPDATE users SET " + fields.join(", ") + " WHERE id = ?", values);
+    return this.getUserById(id);
+  }
+  async deleteUser(id) {
+    const result = await this.runQuery("DELETE FROM users WHERE id = ?", [id]);
+    return result.changes > 0;
+  }
+  async getAllCandidates(centerName = null) {
+    let sql = "SELECT * FROM candidates";
+    if (centerName) sql += " WHERE centerName = ?";
+    sql += " ORDER BY createdAt DESC";
+    return this.getAll(sql, centerName ? [centerName] : []);
+  }
+  async getCandidateById(id) { return this.getRow("SELECT * FROM candidates WHERE id = ?", [id]); }
+  async createCandidate(candidateData) {
+    const result = await this.runQuery(
+      "INSERT INTO candidates (firstName, lastName, email, phone, registrationDate, formationId, centerName, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [candidateData.firstName, candidateData.lastName, candidateData.email || null, candidateData.phone || null, new Date().toISOString().split("T")[0], candidateData.formationId || null, candidateData.centerName || null, "Actif"]
+    );
+    return this.getCandidateById(result.lastID);
+  }
+  async updateCandidate(id, updates) {
+    const fields = [];
+    const values = [];
+    Object.entries(updates).forEach(([key, value]) => {
+      if (key !== "id" && value !== undefined) {
+        fields.push(key + " = ?");
+        values.push(value);
+      }
+    });
+    if (fields.length === 0) return null;
+    values.push(id);
+    await this.runQuery("UPDATE candidates SET " + fields.join(", ") + " WHERE id = ?", values);
+    return this.getCandidateById(id);
+  }
+  async deleteCandidate(id) {
+    const result = await this.runQuery("DELETE FROM candidates WHERE id = ?", [id]);
+    return result.changes > 0;
+  }
+  async getAllFormations(centerName = null) {
+    let sql = "SELECT * FROM formations";
+    if (centerName) sql += " WHERE centerName = ?";
+    sql += " ORDER BY createdAt DESC";
+    return this.getAll(sql, centerName ? [centerName] : []);
+  }
+  async getFormationById(id) { return this.getRow("SELECT * FROM formations WHERE id = ?", [id]); }
+  async createFormation(formationData) {
+    const result = await this.runQuery(
+      "INSERT INTO formations (title, description, startDate, endDate, price, maxParticipants, centerName, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [formationData.title, formationData.description || null, formationData.startDate || null, formationData.endDate || null, formationData.price || 0, formationData.maxParticipants || 20, formationData.centerName || null, "Planifié"]
+    );
+    return this.getFormationById(result.lastID);
+  }
+  async updateFormation(id, updates) {
+    const fields = [];
+    const values = [];
+    Object.entries(updates).forEach(([key, value]) => {
+      if (key !== "id" && value !== undefined) {
+        fields.push(key + " = ?");
+        values.push(value);
+      }
+    });
+    if (fields.length === 0) return null;
+    values.push(id);
+    await this.runQuery("UPDATE formations SET " + fields.join(", ") + " WHERE id = ?", values);
+    return this.getFormationById(id);
+  }
+  async deleteFormation(id) {
+    const result = await this.runQuery("DELETE FROM formations WHERE id = ?", [id]);
+    return result.changes > 0;
+  }
+  async checkFormationCapacity(formationId) {
+    const formation = await this.getFormationById(formationId);
+    if (!formation) return { hasReachedMax: false, message: "" };
+    const candidates = await this.getAll("SELECT COUNT(*) as count FROM candidates WHERE formationId = ?", [formationId]);
+    const count = candidates[0]?.count || 0;
+    return { hasReachedMax: count >= (formation.maxParticipants || 20), message: "" };
+  }
+  async getAllPayments() { return this.getAll("SELECT * FROM payments ORDER BY createdAt DESC"); }
+  async createPayment(paymentData) {
+    const result = await this.runQuery(
+      "INSERT INTO payments (candidateId, formationId, amount, paymentDate, paymentMethod, receiptNumber) VALUES (?, ?, ?, ?, ?, ?)",
+      [paymentData.candidateId, paymentData.formationId || null, paymentData.amount, paymentData.paymentDate || new Date().toISOString().split("T")[0], paymentData.paymentMethod || "cash", "REC-" + Date.now()]
+    );
+    return this.getRow("SELECT * FROM payments WHERE id = ?", [result.lastID]);
+  }
+  async getAllCertificates() { return this.getAll("SELECT * FROM certificates ORDER BY createdAt DESC"); }
+  async createCertificate(certificateData) {
+    const result = await this.runQuery(
+      "INSERT INTO certificates (candidateId, formationId, certificateNumber, issueDate) VALUES (?, ?, ?, ?)",
+      [certificateData.candidateId, certificateData.formationId || null, "CERT-" + Date.now(), new Date().toISOString().split("T")[0]]
+    );
+    return this.getRow("SELECT * FROM certificates WHERE id = ?", [result.lastID]);
+  }
+  async getAllNotifications() { return this.getAll("SELECT * FROM notifications ORDER BY createdAt DESC"); }
+  async createNotification(notificationData) {
+    const result = await this.runQuery(
+      "INSERT INTO notifications (title, message, status) VALUES (?, ?, ?)",
+      [notificationData.title, notificationData.message || null, "Non lu"]
+    );
+    return this.getRow("SELECT * FROM notifications WHERE id = ?", [result.lastID]);
+  }
+  async markNotificationAsRead(id) {
+    await this.runQuery("UPDATE notifications SET status = ? WHERE id = ?", ["Lu", id]);
+    return this.getRow("SELECT * FROM notifications WHERE id = ?", [id]);
+  }
+  getDefaultSettings() { return { centerName: "Forci Plus", theme: "light", language: "fr" }; }
+  async getDefaultSettingsAsync() { return this.getDefaultSettings(); }
+  async getDashboardStats() {
+    const candidates = await this.getAll("SELECT COUNT(*) as count FROM candidates");
+    const formations = await this.getAll("SELECT COUNT(*) as count FROM formations");
+    const payments = await this.getAll("SELECT COALESCE(SUM(amount), 0) as total FROM payments");
+    const certificates = await this.getAll("SELECT COUNT(*) as count FROM certificates");
+    return { totalCandidates: candidates[0]?.count || 0, totalFormations: formations[0]?.count || 0, totalRevenue: payments[0]?.total || 0, issuedCertificates: certificates[0]?.count || 0 };
+  }
+  async close() {
+    return new Promise((resolve, reject) => {
+      if (this.db) {
+        this.db.close(err => {
+          if (err) reject(err);
+          else { console.log("DB closed"); resolve(); }
+        });
+      } else { resolve(); }
+    });
+  }
+  getDebugInfo() { return { memoryUsage: process.memoryUsage(), uptime: process.uptime() }; }
+  getConnectionStats() { return { connected: true, database: this.dbPath }; }
+  async getDetailedHealthCheck() {
+    try {
+      const stats = await this.getDashboardStats();
+      return { healthy: true, database: "sqlite", ...stats };
+    } catch (error) {
+      return { healthy: false, error: error.message };
+    }
+  }
+  async checkForLocks() { return { locked: false }; }
+  async logPerformanceMetrics() { console.log("Metrics:", this.getConnectionStats()); }
+  async resetAllData() {
+    const tables = ["users", "candidates", "formations", "payments", "certificates", "notifications"];
+    for (const table of tables) {
+      await this.runQuery("DELETE FROM " + table);
+    }
     return true;
   }
-
-  // Méthodes pour les paiements
-  getAllPayments() {
-    const data = this.getData();
-    return data.payments || [];
-  }
-
-  getPaymentsByCandidate(candidateId) {
-    const payments = this.getAllPayments();
-    return payments.filter(payment => payment.candidateId === candidateId);
-  }
-
-  createPayment(payment) {
-    const data = this.getData();
-    const payments = data.payments || [];
-    const newPayment = {
-      ...payment,
-      id: Date.now(),
-      paymentDate: new Date().toISOString().split('T')[0],
-      receiptNumber: `REC-${new Date().getFullYear()}-${String(payments.length + 1).padStart(3, '0')}`,
-      status: "Payé"
-    };
-    payments.push(newPayment);
-    data.payments = payments;
-    
-    // Mettre à jour le montant payé du candidat
-    const candidates = data.candidates || [];
-    const candidateIndex = candidates.findIndex(c => c.id === payment.candidateId);
-    if (candidateIndex !== -1) {
-      candidates[candidateIndex].totalPaid += payment.amount;
-      candidates[candidateIndex].remainingAmount = Math.max(0, candidates[candidateIndex].remainingAmount - payment.amount);
-      data.candidates = candidates;
-    }
-    
-    this.saveData(data);
-    return newPayment;
-  }
-
-  savePayments(payments) {
-    const data = this.getData();
-    data.payments = payments;
-    this.saveData(data);
-  }
-
-  // Méthodes pour les formations
-  getAllFormations() {
-    const data = this.getData();
-    return data.formations || [];
-  }
-
-  getFormationById(id) {
-    const formations = this.getAllFormations();
-    return formations.find(formation => formation.id === id);
-  }
-
-  createFormation(formation) {
-    const data = this.getData();
-    const formations = data.formations || [];
-    const newFormation = {
-      ...formation,
-      id: Date.now(),
-      currentCandidates: 0,
-      maxParticipants: formation.maxParticipants || 20, // Default max participants
-      status: "Planifié"
-    };
-    formations.push(newFormation);
-    data.formations = formations;
-    this.saveData(data);
-    return newFormation;
-  }
-
-  // Check if formation has reached maximum capacity
-  checkFormationCapacity(formationId) {
-    const formation = this.getFormationById(formationId);
-    if (!formation) return { hasReachedMax: false, message: '' };
-    
-    const candidates = this.getAllCandidates();
-    const formationCandidates = candidates.filter(c => c.formationId === formationId);
-    
-    const hasReachedMax = formationCandidates.length >= (formation.maxParticipants || 20);
-    const message = hasReachedMax 
-      ? `Formation "${formation.title}" a atteint le nombre maximum de candidats (${formation.maxParticipants})`
-      : '';
-    
-    return { hasReachedMax, message };
-  }
-
-  updateFormation(id, updates) {
-    const data = this.getData();
-    const formations = data.formations || [];
-    const index = formations.findIndex(formation => formation.id === id);
-    if (index !== -1) {
-      formations[index] = { ...formations[index], ...updates };
-      data.formations = formations;
-      this.saveData(data);
-      return formations[index];
-    }
-    return null;
-  }
-
-  deleteFormation(id) {
-    const data = this.getData();
-    const formations = data.formations || [];
-    const index = formations.findIndex(formation => formation.id === id);
-    if (index !== -1) {
-      formations.splice(index, 1);
-      data.formations = formations;
-      this.saveData(data);
-      return true;
-    }
-    return false;
-  }
-
-  // Méthodes pour les attestations
-  getAllCertificates() {
-    const data = this.getData();
-    return data.certificates || [];
-  }
-
-  createCertificate(certificate) {
-    const data = this.getData();
-    const certificates = data.certificates || [];
-    const newCertificate = {
-      ...certificate,
-      id: Date.now(),
-      certificateNumber: `CERT-${new Date().getFullYear()}-${String(certificates.length + 1).padStart(3, '0')}`,
-      issueDate: new Date().toISOString().split('T')[0],
-      status: "Généré"
-    };
-    certificates.push(newCertificate);
-    data.certificates = certificates;
-    this.saveData(data);
-    return newCertificate;
-  }
-
-  saveCertificates(certificates) {
-    const data = this.getData();
-    data.certificates = certificates;
-    this.saveData(data);
-  }
-
-  // Méthodes pour les notifications
-  getAllNotifications() {
-    const data = this.getData();
-    return data.notifications || [];
-  }
-
-  createNotification(notification) {
-    const data = this.getData();
-    const notifications = data.notifications || [];
-    const newNotification = {
-      ...notification,
-      id: Date.now(),
-      date: new Date().toISOString().split('T')[0],
-      status: "Non lu"
-    };
-    notifications.push(newNotification);
-    data.notifications = notifications;
-    this.saveData(data);
-    return newNotification;
-  }
-
-  markNotificationAsRead(id) {
-    const data = this.getData();
-    const notifications = data.notifications || [];
-    const index = notifications.findIndex(notification => notification.id === id);
-    if (index !== -1) {
-      notifications[index].status = "Lu";
-      data.notifications = notifications;
-      this.saveData(data);
-      return notifications[index];
-    }
-    return null;
-  }
-
-  // Sauvegarder toutes les notifications
-  saveNotifications(notifications) {
-    const data = this.getData();
-    data.notifications = notifications;
-    this.saveData(data);
-  }
-
-  // Statistiques du dashboard
-  getDashboardStats() {
-    const candidates = this.getAllCandidates();
-    const payments = this.getAllPayments();
-    const formations = this.getAllFormations();
-    const certificates = this.getAllCertificates();
-
-    const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0);
-    const pendingPayments = candidates.filter(c => c.remainingAmount > 0).length;
-    const activeFormations = formations.filter(f => f.status === "En cours").length;
-    const issuedCertificates = certificates.filter(c => c.status === "Généré").length;
-
-    return {
-      totalCandidates: candidates.length,
-      totalFormations: formations.length,
-      totalRevenue,
-      pendingPayments,
-      activeFormations,
-      issuedCertificates
-    };
-  }
-
-  // Paramètres
-  getSetting(key) {
-    const data = this.getData();
-    return data.settings?.[key];
-  }
-
-  setSetting(key, value) {
-    const data = this.getData();
-    data.settings = data.settings || {};
-    data.settings[key] = value;
-    this.saveData(data);
-  }
-
-  // Reset all data to initial state
-  resetAllData() {
-    return this.forceResetAllData();
-  }
-
-  // Clear all data completely
-  clearAllData() {
-    this._data = null;
-    return true;
-  }
-
-  // Initialize with sample data if empty
-  initializeWithSampleData() {
-    const data = this.getData();
-    if (!data.candidates || data.candidates.length === 0) {
-      data.candidates = []; // No sample data to initialize
-    }
-    if (!data.formations || data.formations.length === 0) {
-      data.formations = []; // No sample data to initialize
-    }
-    if (!data.payments || data.payments.length === 0) {
-      data.payments = []; // No sample data to initialize
-    }
-    if (!data.certificates || data.certificates.length === 0) {
-      data.certificates = []; // No sample data to initialize
-    }
-    if (!data.notifications || data.notifications.length === 0) {
-      data.notifications = []; // No sample data to initialize
-    }
-    this.saveData(data);
-  }
+  async clearAllDataCompletely() { return this.resetAllData(); }
 }
-
 module.exports = DatabaseManager;

@@ -115,34 +115,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const updateProfile = async (updates) => {
-    try {
-      setError(null);
-      
-      const updatedProfile = await apiService.updateProfile(updates);
-      setUser(updatedProfile);
-      
-      return { success: true, user: updatedProfile };
-    } catch (err) {
-      console.error('Profile update failed:', err);
-      setError(err.message || 'Profile update failed');
-      throw err;
-    }
-  };
 
-  const changePassword = async (currentPassword, newPassword) => {
-    try {
-      setError(null);
-      
-      await apiService.changePassword({ currentPassword, newPassword });
-      
-      return { success: true };
-    } catch (err) {
-      console.error('Password change failed:', err);
-      setError(err.message || 'Password change failed');
-      throw err;
-    }
-  };
 
   const refreshUserProfile = async () => {
     try {
@@ -172,8 +145,6 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    updateProfile,
-    changePassword,
     refreshUserProfile,
     clearError,
   };
